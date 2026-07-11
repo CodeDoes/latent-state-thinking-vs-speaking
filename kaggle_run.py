@@ -132,11 +132,18 @@ def download_and_analyze():
     print(f">> downloading outputs to {OUT_DIR}")
     os.makedirs(OUT_DIR, exist_ok=True)
     sh(f"kaggle kernels output {KERNEL} -p {OUT_DIR}")
-    print(">> analyzing with bench.py --analyze ...")
-    r = sh(f"{sys.executable} bench.py --analyze --output_dir {OUT_DIR}/experiments")
-    print(r.stdout[-4000:])
-    if r.returncode != 0:
-        print("analyze stderr:\n", r.stderr[-2000:])
+    # The notebook writes modules_report.json (modular run) and/or
+    # bench_report.md (monolithic run). Show whichever exists.
+    rep = Path(OUT_DIR) / "modules_report.json"
+    if rep.exists():
+        print(">> modules_report.json:")
+        print(rep.read_text())
+    else:
+        print(">> analyzing with bench.py --analyze ...")
+        r = sh(f"{sys.executable} bench.py --analyze --output_dir {OUT_DIR}/experiments")
+        print(r.stdout[-4000:])
+        if r.returncode != 0:
+            print("analyze stderr:\n", r.stderr[-2000:])
 
 
 def main():
