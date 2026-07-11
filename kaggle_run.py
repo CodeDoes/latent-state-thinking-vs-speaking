@@ -133,7 +133,7 @@ def download_and_analyze():
     os.makedirs(OUT_DIR, exist_ok=True)
     sh(f"kaggle kernels output {KERNEL} -p {OUT_DIR}")
     print(">> analyzing with bench.py --analyze ...")
-    r = sh(f"python bench.py --analyze --output_dir {OUT_DIR}/experiments")
+    r = sh(f"{sys.executable} bench.py --analyze --output_dir {OUT_DIR}/experiments")
     print(r.stdout[-4000:])
     if r.returncode != 0:
         print("analyze stderr:\n", r.stderr[-2000:])

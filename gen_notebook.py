@@ -1,15 +1,39 @@
 #!/usr/bin/env python3
-"""Generate notebook.ipynb as a thin wrapper around the reusable bench.py.
+"""Generate notebook.ipynb as a self-contained wrapper around the reusable bench.py.
 
-Design (per AGENTS.md rule 7): the notebook must NOT duplicate model code.
-It imports `src/` (uploaded alongside it) and runs `bench.py`, which is the
-single entry point for train + strict exact-match QA eval + report. Improving
-`src/` or `bench.py` therefore automatically improves the Kaggle run.
+Kaggle's `kaggle kernels push` uploads ONLY the notebook file (it does not
+upload the rest of the working directory). So we cannot rely on bench.py /
+src/ being present on Kaggle. Instead, this generator embeds the real
+src/*.py and bench.py files as `%%writefile` cells, so the notebook
+*recreates* them on disk at runtime, then runs bench.py as a subprocess.
 
-bench.py emits `STAGE:` lines every epoch so `kaggle_run.py` can monitor live
-progress and fail-fast on tracebacks.
+Benefits:
+  * Single source of truth: editing src/ or bench.py and re-running this
+    generator updates the embedded copies (AGENTS.md rule 7: improve src/,
+    regenerate notebook, don't hand-patch cells).
+  * Training runs in a separate `bench.py` subprocess, so the notebook
+    process never imports torch -> no P100 reload / 'triton' double-registration
+    error.
+  * bench.py emits STAGE: lines every epoch so kaggle_run.py can monitor live.
+
+The COMPAT cell detects the GPU via nvidia-smi (no torch import) and, only if
+it is a P100 (sm_60), installs a compatible torch into the env. The bench.py
+subprocess then loads whatever torch is present.
 """
 import json
+from pathlib import Path
+
+HERE = Path(__file__).parent
+
+# Files to embed (real source of truth). Order matters for package imports.
+EMBED = [
+    ("src/__init__.py", ""),
+    ("src/dataset.py", (HERE / "src/dataset.py").read_text()),
+    ("src/tokenizer.py", (HERE / "src/tokenizer.py").read_text()),
+    ("src/models.py", (HERE / "src/models.py").read_text()),
+    ("src/trainer.py", (HERE / "src/trainer.py").read_text()),
+    ("bench.py", (HERE / "bench.py").read_text()),
+]
 
 
 def code(src):
@@ -18,6 +42,14 @@ def code(src):
 
 def md(src):
     return {"cell_type": "markdown", "metadata": {}, "source": src}
+
+
+def writefile_cell(rel_path: str, content: str):
+    src = [f"%%writefile {rel_path}\n", content]
+    # Ensure the file ends with a newline for clean writing.
+    if content and not content.endswith("\n"):
+        src.append("\n")
+    return code(src)
 
 
 COMPAT = [
@@ -52,13 +84,20 @@ COMPAT = [
     "        'torch==2.3.1', 'torchvision==0.18.1'])\n",
     "else:\n",
     "    print('Using Kaggle-default torch (T4 / newer GPU).')\n",
-    "print('bench.py will report the torch version it loads.')",
+    "print('bench.py will report the torch version it loads.')\n",
+]
+
+SETUP = [
+    "# Recreate the reusable src/ package and bench.py from the embedded cells.\n",
+    "import os\n",
+    "os.makedirs('src', exist_ok=True)\n",
+    "print('workspace files ready:', sorted(os.listdir('.')))\n",
 ]
 
 RUN = [
-    "# Run the reusable benchmark. It imports src/ and does train + strict\n",
-    "# exact-match QA eval + report. Output streams here so kaggle_run.py can\n",
-    "# watch STAGE: lines live. Outputs land in CWD (/kaggle/working) and are\n",
+    "# Run the reusable benchmark (now on disk). It imports src/ and does train\n",
+    "# + strict exact-match QA eval + report. Output streams here so kaggle_run.py\n",
+    "# can watch STAGE: lines live. Outputs land in CWD (/kaggle/working) and are\n",
     "# preserved as notebook outputs: experiments/<exp>/..., bench_report.md.\n",
     "import sys, os\n",
     "\n",
@@ -73,7 +112,7 @@ RUN = [
     "       f\"--epochs 20 --n_samples 5000 --device cuda --d_model 256 --eval_every 1\")\n",
     "print('STAGE: launch', cmd)\n",
     "os.system(cmd)\n",
-    "print('NOTEBOOK DONE')",
+    "print('NOTEBOOK DONE')\n",
 ]
 
 SUMMARY = [
@@ -85,24 +124,32 @@ SUMMARY = [
     "    print('bench_report.md not found (run may have failed).')\n",
 ]
 
+cells = [
+    md([
+        "# Hybrid Latent-State Language Model — Benchmark\n",
+        "\n",
+        "This notebook is a self-contained wrapper around `bench.py`, the reusable\n",
+        "entry point for training, strict exact-match QA evaluation, and reporting.\n",
+        "It recreates `src/` + `bench.py` from embedded cells (so improving `src/`\n",
+        "or `bench.py` and regenerating this notebook keeps them in sync), then runs\n",
+        "bench.py as a subprocess.\n",
+        "\n",
+        "**Hypothesis:** `latent_state_update() × N` + `decode_token() × M` beats\n",
+        "token-by-token next-token prediction on long-horizon reasoning, at equal\n",
+        "parameter count.\n",
+    ]),
+    code(COMPAT),
+    code(SETUP),
+]
+
+for rel_path, content in EMBED:
+    cells.append(writefile_cell(rel_path, content))
+
+cells.append(code(RUN))
+cells.append(code(SUMMARY))
+
 nb = {
-    "cells": [
-        md([
-            "# Hybrid Latent-State Language Model — Benchmark\n",
-            "\n",
-            "This notebook is a thin wrapper around `bench.py`, the reusable entry point\n",
-            "for training, strict exact-match QA evaluation, and reporting. It imports\n",
-            "the shared `src/` code (uploaded with this notebook), so improving `src/`\n",
-            "or `bench.py` automatically improves this run.\n",
-            "\n",
-            "**Hypothesis:** `latent_state_update() × N` + `decode_token() × M` beats\n",
-            "token-by-token next-token prediction on long-horizon reasoning, at equal\n",
-            "parameter count.\n",
-        ]),
-        code(COMPAT),
-        code(RUN),
-        code(SUMMARY),
-    ],
+    "cells": cells,
     "metadata": {
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3.10"},
@@ -114,4 +161,4 @@ nb = {
 with open("notebook.ipynb", "w") as f:
     json.dump(nb, f, indent=1)
 print(f"notebook.ipynb generated — {len(nb['cells'])} cells")
-print("Wrapper around bench.py (imports src/, strict QA eval, STAGE: monitoring)")
+print("Self-contained wrapper: embeds src/ + bench.py via %%writefile, runs bench.py")
