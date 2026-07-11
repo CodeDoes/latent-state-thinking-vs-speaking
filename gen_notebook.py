@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
-"""Generate notebook.ipynb as a self-contained wrapper around the reusable bench.py.
+"""Generate notebook.ipynb as a self-contained wrapper around train_modules.py.
 
 Kaggle's `kaggle kernels push` uploads ONLY the notebook file (it does not
 upload the rest of the working directory). So we cannot rely on bench.py /
 src/ being present on Kaggle. Instead, this generator embeds the real
-src/*.py and bench.py files as `%%writefile` cells, so the notebook
-*recreates* them on disk at runtime, then runs bench.py as a subprocess.
+src/*.py and train_modules.py files as `%%writefile` cells, so the notebook
+*recreates* them on disk at runtime, then runs train_modules.py as a subprocess.
 
-Benefits:
-  * Single source of truth: editing src/ or bench.py and re-running this
-    generator updates the embedded copies (AGENTS.md rule 7: improve src/,
-    regenerate notebook, don't hand-patch cells).
-  * Training runs in a separate `bench.py` subprocess, so the notebook
-    process never imports torch -> no P100 reload / 'triton' double-registration
-    error.
-  * bench.py emits STAGE: lines every epoch so kaggle_run.py can monitor live.
-
-The COMPAT cell detects the GPU via nvidia-smi (no torch import) and, only if
-it is a P100 (sm_60), installs a compatible torch into the env. The bench.py
-subprocess then loads whatever torch is present.
+train_modules.py trains the SEPARABLE latent-state pieces, each with its OWN
+objective, in a curriculum:
+  Phase 0  token<->state autoencoder           ("output sane words")
+  Phase 1  latent algebra, each piece separate:
+           make_B(A)->B, make_A(B)->A, continue(A)->A2, continue(B)->B2,
+           Answer_in_format_D(A,B,C)->D
+The notebook process never imports torch (training is in the subprocess), so
+there is no P100 reload / 'triton' double-registration error.
 """
+
 import json
 from pathlib import Path
 
@@ -33,7 +30,9 @@ EMBED = [
     ("src/tokenizer.py", (HERE / "src/tokenizer.py").read_text()),
     ("src/models.py", (HERE / "src/models.py").read_text()),
     ("src/trainer.py", (HERE / "src/trainer.py").read_text()),
+    ("src/modules.py", (HERE / "src/modules.py").read_text()),
     ("bench.py", (HERE / "bench.py").read_text()),
+    ("train_modules.py", (HERE / "train_modules.py").read_text()),
 ]
 
 
@@ -47,7 +46,6 @@ def md(src):
 
 def writefile_cell(rel_path: str, content: str):
     src = [f"%%writefile {rel_path}\n", content]
-    # Ensure the file ends with a newline for clean writing.
     if content and not content.endswith("\n"):
         src.append("\n")
     return code(src)
@@ -58,12 +56,12 @@ COMPAT = [
     "from pathlib import Path\n",
     "\n",
     "# IMPORTANT: do NOT import torch here. Training runs in a SEPARATE\n",
-    "# subprocess (bench.py), so the notebook process only needs the right\n",
-    "# torch installed in the environment. Importing torch in this process and\n",
-    "# then reloading it after a P100 downgrade causes the\n",
+    "# subprocess (train_modules.py), so the notebook process only needs the\n",
+    "# right torch installed in the environment. Importing torch in this process\n",
+    "# and then reloading it after a P100 downgrade causes the\n",
     "# 'Only a single TORCH_LIBRARY can be used to register triton' error.\n",
     "# Detect the GPU via nvidia-smi and, if it's a P100 (sm_60), install a\n",
-    "# compatible torch into the env; the bench.py subprocess will load it.\n",
+    "# compatible torch into the env; the train_modules.py subprocess loads it.\n",
     "\n",
     "def gpu_capability():\n",
     "    try:\n",
@@ -85,11 +83,12 @@ COMPAT = [
     "        'torch==2.3.1', 'torchvision==0.18.1'])\n",
     "else:\n",
     "    print('Using Kaggle-default torch (T4 / newer GPU).')\n",
-    "print('bench.py will report the torch version it loads.')\n",
+    "print('train_modules.py will report the torch version it loads.')\n",
 ]
 
 SETUP = [
-    "# Recreate the reusable src/ package and bench.py from the embedded cells.\n",
+    "# Recreate the reusable src/ package and train_modules.py from the embedded\n",
+    "# cells.\n",
     "import os\n",
     "os.makedirs('src', exist_ok=True)\n",
     "open('src/__init__.py', 'w').close()  # optional, enables `import src...`\n",
@@ -97,48 +96,42 @@ SETUP = [
 ]
 
 RUN = [
-    "# Run the reusable benchmark (now on disk). It imports src/ and does train\n",
-    "# + strict exact-match QA eval + report. Output streams here so kaggle_run.py\n",
-    "# can watch STAGE: lines live. Outputs land in CWD (/kaggle/working) and are\n",
-    "# preserved as notebook outputs: experiments/<exp>/..., bench_report.md.\n",
+    "# Run the modular training (now on disk). Each piece (token<->state, and the\n",
+    "# latent algebra make_B/make_A/continue/Answer_in_format_D) is trained with\n",
+    "# its OWN objective, in a curriculum: first the autoencoder ('output sane\n",
+    "# words'), then the latent ops. Output streams here so kaggle_run.py can\n",
+    "# watch STAGE: lines live. Outputs (modules_report.json) land in CWD.\n",
     "import sys, os\n",
-    "\n",
-    "# Matched-parameter battery for the 'first night' win condition:\n",
-    "#   baseline      ~2M   (efficient AR reference)\n",
-    "#   baseline_big  ~33M  (AR baseline at the SAME size as the latent models)\n",
-    "#   latent_ssm       34M, thinking=0   (isolates the 'thinking' effect)\n",
-    "#   latent_ssm_think 34M, think every 4 (main hypothesis)\n",
-    "#   latent_ssm_decoder 34M, multi-token decoder\n",
-    "MODELS = 'baseline,baseline_big,latent_ssm,latent_ssm_think,latent_ssm_decoder'\n",
-    "cmd = (f\"{sys.executable} bench.py --models {MODELS} \"\n",
-    "       f\"--epochs 20 --n_samples 5000 --device cuda --d_model 256 --eval_every 1\")\n",
+    "cmd = (f\"{sys.executable} train_modules.py --device cuda \"\n",
+    "       f\"--n_samples 5000 --d_state 256 --phase0_epochs 15 --phase1_epochs 12\")\n",
     "print('STAGE: launch', cmd)\n",
     "os.system(cmd)\n",
     "print('NOTEBOOK DONE')\n",
 ]
 
 SUMMARY = [
-    "# Show the generated report (also saved as bench_report.md).\n",
-    "report = Path('bench_report.md')\n",
+    "# Show the generated report (also saved as modules_report.json).\n",
+    "report = Path('modules_report.json')\n",
     "if report.exists():\n",
     "    print(report.read_text())\n",
     "else:\n",
-    "    print('bench_report.md not found (run may have failed).')\n",
+    "    print('modules_report.json not found (run may have failed).')\n",
 ]
 
 cells = [
     md([
-        "# Hybrid Latent-State Language Model — Benchmark\n",
+        "# Hybrid Latent-State Language Model - Modular Training\n",
         "\n",
-        "This notebook is a self-contained wrapper around `bench.py`, the reusable\n",
-        "entry point for training, strict exact-match QA evaluation, and reporting.\n",
-        "It recreates `src/` + `bench.py` from embedded cells (so improving `src/`\n",
-        "or `bench.py` and regenerating this notebook keeps them in sync), then runs\n",
-        "bench.py as a subprocess.\n",
+        "This notebook is a self-contained wrapper around `train_modules.py`, which\n",
+        "trains the latent-state pieces SEPARATELY, each with its own objective\n",
+        "(curriculum: autoencoder 'output sane words' first, then the latent\n",
+        "algebra). It recreates `src/` + `train_modules.py` from embedded cells, then\n",
+        "runs train_modules.py as a subprocess.\n",
         "\n",
-        "**Hypothesis:** `latent_state_update() × N` + `decode_token() × M` beats\n",
-        "token-by-token next-token prediction on long-horizon reasoning, at equal\n",
-        "parameter count.\n",
+        "**Hypothesis:** decomposing into trainable input->output maps (make_B(A)->B,\n",
+        "continue(A)->A2, Answer_in_format_D(A,B,C)->D, plus token<->state) lets the\n",
+        "latent state actually *contain the correct thing* instead of just learning\n",
+        "to spell tokens.\n",
     ]),
     code(COMPAT),
     code(SETUP),
@@ -162,5 +155,5 @@ nb = {
 
 with open("notebook.ipynb", "w") as f:
     json.dump(nb, f, indent=1)
-print(f"notebook.ipynb generated — {len(nb['cells'])} cells")
-print("Self-contained wrapper: embeds src/ + bench.py via %%writefile, runs bench.py")
+print(f"notebook.ipynb generated - {len(nb['cells'])} cells")
+print("Self-contained wrapper: embeds src/ + train_modules.py, runs train_modules.py")

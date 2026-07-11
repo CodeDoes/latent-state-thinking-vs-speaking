@@ -33,6 +33,8 @@ results.json
 bench_report.md
 bench_results.json
 FINAL_REPORT.txt
+modules_report.json
+modules_foundation.pt
 
 # Kaggle
 kaggle_output/
