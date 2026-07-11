@@ -26,20 +26,27 @@ from typing import Optional, Tuple
 # ============================================================
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, max_len: int = 512, dropout: float = 0.1):
+    """Sinusoidal positional encoding, generated on the fly for any length."""
+    def __init__(self, d_model: int, dropout: float = 0.1):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
+        self.d_model = d_model
+        self._cache: dict = {}
 
     def forward(self, x):
-        x = x + self.pe[:, :x.size(1), :]
-        return self.dropout(x)
+        seq_len = x.size(1)
+        device = x.device
+        if seq_len not in self._cache or self._cache[seq_len].device != device:
+            position = torch.arange(0, seq_len, dtype=torch.float, device=device).unsqueeze(1)
+            div_term = torch.exp(
+                torch.arange(0, self.d_model, 2, dtype=torch.float, device=device)
+                * (-math.log(10000.0) / self.d_model)
+            )
+            pe = torch.zeros(seq_len, self.d_model, device=device)
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            self._cache[seq_len] = pe.unsqueeze(0)
+        return self.dropout(x + self._cache[seq_len])
 
 
 class BaselineTransformer(nn.Module):
@@ -65,7 +72,7 @@ class BaselineTransformer(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_encoder = PositionalEncoding(d_model, max_seq_len, dropout)
+        self.pos_encoder = PositionalEncoding(d_model, dropout)
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,

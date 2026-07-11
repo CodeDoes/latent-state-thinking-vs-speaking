@@ -88,6 +88,13 @@ You are an autonomous ML researcher. Continue working until compute budget is ex
 3. Record: hypothesis, code changes, hyperparameters, training loss, evaluation scores, generation samples, conclusions
 4. **Never overwrite previous results**
 5. Save checkpoint, metrics, and sample outputs after each experiment
+6. **RUN EVERY EXPERIMENT ON KAGGLE — NEVER ON LOCAL CPU.** Local hardware here has no usable GPU (CUDA is unavailable) and is far too slow for real training, so any experiment executed locally is wasted compute and produces misleading "too slow / runs forever" results. The workflow is:
+   - Develop and validate code locally with **fast CPU syntax/import/sanity checks only** (tiny `n_samples`, 1 epoch, small `d_model`). Do NOT treat local runs as real experiments.
+   - Push to Kaggle and execute there: `python kaggle_push.py --run` (pushes `notebook.ipynb` + the `src/` directory and runs it on a free GPU). For a scripted battery, push and run `bench.py` the same way (Kaggle runs `.py` files in the pushed directory).
+   - Monitor with `python kaggle_push.py --monitor` and download with `python kaggle_push.py --download` into `kaggle_output/`.
+   - The notebook already writes model files + `results.json` + `samples.json` + `loss_curves.png` into `/kaggle/working/`, which Kaggle preserves as Output; pull those down to analyze.
+   - Analyze downloaded results with `python bench.py --analyze` (or `python analyze_experiments.py`) — do not re-train locally to "check".
+7. **Reusable entry points (do not hand-patch the notebook JSON):** training/benchmarking goes through `bench.py` (single entry point for train + strict eval + report; `--quick` for local sanity, full battery on Kaggle with `--device cuda`). The Kaggle notebook imports the same `src/` code, so improving `src/` automatically improves the Kaggle run. If the notebook must change, edit `src/` and re-push — do not edit notebook cells by hand.
 
 ### Experiment Structure
 ```
@@ -106,9 +113,11 @@ research_log.md
 ```
 
 ### Kaggle Constraints
+- **ALL experiments run on Kaggle GPUs, never locally.** Local runs are only for code sanity checks.
 - Design around checkpointing — free accelerators are limited, sessions can stop
-- Save models, metrics, and samples frequently
+- Save models, metrics, and samples frequently (notebook writes to `/kaggle/working/`)
 - Commit results after each experiment
+- Push/run via `python kaggle_push.py --run`; monitor via `--monitor`; download via `--download`
 
 ---
 

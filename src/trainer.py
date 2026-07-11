@@ -22,6 +22,11 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
+try:
+    from src.dataset import build_prompt, parse_answer, _bucket
+except ImportError:  # allow running trainer standalone
+    from dataset import build_prompt, parse_answer, _bucket
+
 
 @dataclass
 class ExperimentConfig:
@@ -187,90 +192,96 @@ class Trainer:
 
     @torch.no_grad()
     def generate(self, prompt: str, max_tokens: int = 50, temperature: float = 0.8, top_k: int = 40) -> str:
-        """Generate text from a prompt with temperature sampling."""
+        """Generate text from a prompt.
+
+        temperature <= 0 disables sampling and uses greedy argmax (used for
+        deterministic, exact-match evaluation). Generation stops at EOS or a
+        newline so we capture just the answer in the "Answer:" slot.
+        """
         self.model.eval()
 
-        # Encode prompt
         prompt_ids = self.tokenizer.encode(prompt, max_len=self.config.max_seq_len)
         generated = list(prompt_ids)
+
+        eos_id = self.tokenizer.vocab[self.tokenizer.eos_token]
+        newline_id = self.tokenizer.vocab.get("\n", None)
 
         for _ in range(max_tokens):
             x = torch.tensor([generated], dtype=torch.long).to(self.device)
             logits = self.model(x)
-            
-            # Get next token logits (last position)
-            next_logits = logits[0, -1, :] / temperature
-            
-            # Top-k filtering
-            if top_k > 0:
-                indices_to_remove = next_logits < torch.topk(next_logits, top_k)[0][..., -1, None]
-                next_logits[indices_to_remove] = float('-inf')
-            
-            # Sample from the filtered distribution
-            probs = F.softmax(next_logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1).item()
+            next_logits = logits[0, -1, :]
 
-            if self.tokenizer.inv_vocab.get(next_token) == self.tokenizer.eos_token:
+            if temperature <= 0:
+                next_token = int(torch.argmax(next_logits).item())
+            else:
+                next_logits = next_logits / temperature
+                if top_k > 0:
+                    kth = torch.topk(next_logits, top_k)[0][..., -1, None]
+                    next_logits[next_logits < kth] = float('-inf')
+                probs = F.softmax(next_logits, dim=-1)
+                next_token = int(torch.multinomial(probs, num_samples=1).item())
+
+            if next_token == eos_id:
                 break
-
+            if newline_id is not None and next_token == newline_id:
+                break
             generated.append(next_token)
 
-        # Decode only the generated part (after prompt)
-        generated_text = self.tokenizer.decode(generated[len(prompt_ids):])
-        return generated_text
+        return self.tokenizer.decode(generated[len(prompt_ids):])
 
-    def run_qa_eval(self, dataset: List[dict], n_samples_per_question: int = 3) -> Dict[str, float]:
-        """Evaluate on QA tasks with multiple samples per question."""
+    @torch.no_grad()
+    def run_qa_eval(self, dataset: List[dict], max_new_tokens: int = 20) -> Dict[str, float]:
+        """Strict exact-match evaluation on QA tasks, with stratified breakdowns.
+
+        Returns overall accuracy, per-task accuracy, and accuracy stratified by
+        difficulty bucket (interference level / decoy presence / etc.) so we can
+        see *where* the model fails -- not just a single number. This also
+        exposes "low loss but useless output" that the old substring check hid.
+        """
         self.model.eval()
         correct = 0
         total = 0
         by_task = {}
+        by_bucket = {}
 
         for sample in dataset:
-            narrative = sample["narrative"]
-            question = sample["question"]
-            answer = sample["answer"]
-            task_type = sample["task_type"]
-
-            if not question:  # Skip story tasks
+            if not sample.get("question"):  # skip story tasks
                 continue
 
-            if task_type not in by_task:
-                by_task[task_type] = {"correct": 0, "total": 0}
+            task_type = sample["task_type"]
+            by_task.setdefault(task_type, {"correct": 0, "total": 0})
+            bucket = _bucket(sample)
+            bkey = f"{task_type}|{bucket}"
+            by_bucket.setdefault(bkey, {"correct": 0, "total": 0})
 
-            prompt = f"{narrative} {question}"
-            
-            # Generate multiple samples and check if any contains the answer
-            found_answer = False
-            for _ in range(n_samples_per_question):
-                generated = self.generate(prompt, max_tokens=50, temperature=0.8, top_k=40)
-                
-                # Check if answer appears in generated text (case-insensitive)
-                if answer.lower() in generated.lower():
-                    found_answer = True
-                    break
-                
-                # Also check for partial matches (e.g., "garage" in "in the garage")
-                # For location tasks, check if the location name appears
-                if task_type == "location" and answer.lower() in generated.lower():
-                    found_answer = True
-                    break
+            prompt = build_prompt(sample)
+            expected = sample["answer"].strip().lower()
 
-            if found_answer:
+            generated = self.generate(prompt, max_tokens=max_new_tokens, temperature=0.0)
+            predicted = parse_answer(generated).strip().lower()
+
+            ok = (predicted == expected)
+            if ok:
                 correct += 1
                 by_task[task_type]["correct"] += 1
-
+                by_bucket[bkey]["correct"] += 1
             total += 1
             by_task[task_type]["total"] += 1
+            by_bucket[bkey]["total"] += 1
 
-        # Compute accuracy by task
-        task_accuracy = {}
-        for task, counts in by_task.items():
-            task_accuracy[task] = counts["correct"] / max(counts["total"], 1)
-
+        task_accuracy = {
+            task: counts["correct"] / max(counts["total"], 1)
+            for task, counts in by_task.items()
+        }
+        stratified = {
+            bkey: counts["correct"] / max(counts["total"], 1)
+            for bkey, counts in by_bucket.items()
+        }
         return {
             "overall_accuracy": correct / max(total, 1),
             "task_accuracy": task_accuracy,
+            "stratified": stratified,
+            "n": total,
         }
 
     def save_checkpoint(self, epoch: int, metrics: dict):
@@ -341,16 +352,26 @@ class Trainer:
                 qa_results = self.run_qa_eval(qa_dataset)
                 self.metrics["eval_accuracy"].append(qa_results)
 
-                # Generate samples
-                for sample in qa_dataset[:3]:
-                    prompt = f"{sample['narrative']} {sample['question']}"
-                    generated = self.generate(prompt, max_tokens=30)
+                # Print + record sample outputs so we can SEE whether the
+                # model's output is actually useful, not just low-loss.
+                print(f"\n--- SAMPLE OUTPUTS (epoch {epoch}) ---")
+                for sample in qa_dataset[:4]:
+                    if not sample.get("question"):
+                        continue
+                    prompt = build_prompt(sample)
+                    generated = self.generate(prompt, max_tokens=20, temperature=0.0)
+                    predicted = parse_answer(generated).strip().lower()
+                    expected = sample["answer"].strip().lower()
+                    ok = "✓" if predicted == expected else "✗"
+                    print(f"  [{ok}] ({sample['task_type']}) Q: {sample['question']}")
+                    print(f"       expected: {sample['answer']!r}  got: {generated!r}")
                     self.metrics["samples"].append({
                         "epoch": epoch,
-                        "prompt": prompt[:100] + "...",
+                        "task_type": sample["task_type"],
+                        "prompt": prompt,
                         "expected": sample["answer"],
                         "generated": generated,
-                        "task_type": sample["task_type"],
+                        "correct": predicted == expected,
                     })
 
             epoch_time = time.time() - epoch_start
@@ -364,6 +385,9 @@ class Trainer:
                 log_msg += f"qa_acc: {qa_results['overall_accuracy']:.3f} | "
             log_msg += f"time: {epoch_time:.1f}s"
             print(log_msg)
+            print(f"STAGE: train exp={self.config.exp_id} ep={epoch}/{self.config.num_epochs} "
+                  f"val_loss={val_loss if val_loss is not None else '-'} "
+                  f"qa_acc={qa_results['overall_accuracy'] if qa_results else '-'}")
 
             # Save checkpoint
             if epoch % self.config.save_every == 0 or epoch == self.config.num_epochs:
@@ -376,6 +400,15 @@ class Trainer:
         total_time = time.time() - start_time
         print(f"\nTraining complete in {total_time:.1f}s")
 
+        # Diagnostic: flag the "low loss but useless output" failure mode.
+        if self.metrics["val_loss"] and self.metrics["eval_accuracy"]:
+            final_val = self.metrics["val_loss"][-1]
+            final_acc = self.metrics["eval_accuracy"][-1]["overall_accuracy"]
+            if final_val < 2.0 and final_acc < 0.5:
+                print("\n  ⚠ LOW LOSS BUT USELESS OUTPUT")
+                print(f"    val_loss={final_val:.3f} (low) yet exact-match acc={final_acc:.3f} (low).")
+                print("    The model minimized cross-entropy without learning to answer.")
+
         # Save final results
         self.save_results()
 
@@ -383,9 +416,10 @@ class Trainer:
         samples_path = self.output_dir / "samples.txt"
         with open(samples_path, 'w') as f:
             for sample in self.metrics["samples"]:
-                f.write(f"\n--- Epoch {sample['epoch']} [{sample['task_type']}] ---\n")
-                f.write(f"Prompt: {sample['prompt']}\n")
-                f.write(f"Expected: {sample['expected']}\n")
+                mark = "CORRECT" if sample.get("correct") else "WRONG"
+                f.write(f"\n--- Epoch {sample['epoch']} [{sample['task_type']}] {mark} ---\n")
+                f.write(f"Prompt:\n{sample['prompt']}\n")
+                f.write(f"Expected:  {sample['expected']}\n")
                 f.write(f"Generated: {sample['generated']}\n")
 
         return self.metrics

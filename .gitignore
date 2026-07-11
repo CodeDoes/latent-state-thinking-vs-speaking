@@ -29,6 +29,11 @@ experiments/
 *.pth
 results.json
 
+# Generated benchmark reports
+bench_report.md
+bench_results.json
+FINAL_REPORT.txt
+
 # Kaggle
 kaggle_output/
 kernel-metadata.json

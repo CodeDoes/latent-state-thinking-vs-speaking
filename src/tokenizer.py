@@ -78,11 +78,18 @@ class CharTokenizer:
 
 
 def build_tokenizer_from_dataset(dataset: List[dict], max_vocab: int = 256) -> CharTokenizer:
-    """Build tokenizer from dataset samples."""
+    """Build tokenizer from dataset samples.
+
+    Includes the QA formatting markers (Question:, Answer:, newline, ':') so
+    they are never mapped to <UNK> when the strict "Answer: <X>" surface form
+    is used during training/evaluation.
+    """
     texts = []
     for sample in dataset:
         texts.append(sample["narrative"])
         if sample.get("question"):
             texts.append(sample["question"])
         texts.append(sample["answer"])
+    # Ensure format markers are present in the vocabulary.
+    texts += ["Question:", "Answer:", "\n", ":", "The secret code for was updated to"]
     return CharTokenizer(texts, max_vocab=max_vocab)

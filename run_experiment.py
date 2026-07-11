@@ -27,7 +27,7 @@ import torch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.dataset import generate_dataset
+from src.dataset import generate_dataset, format_for_training
 from src.tokenizer import build_tokenizer_from_dataset, CharTokenizer
 from src.models import BaselineTransformer, LatentSSM, LatentSSMDecoder
 from src.trainer import Trainer, ExperimentConfig
@@ -44,9 +44,13 @@ def main():
     parser.add_argument("--d_model", type=int, default=256, help="Model dimension")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
-    parser.add_argument("--max_seq_len", type=int, default=128, help="Maximum sequence length")
+    parser.add_argument("--max_seq_len", type=int, default=768, help="Maximum sequence length")
     parser.add_argument("--n_samples", type=int, default=5000, help="Number of training samples")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--recall_max_chars", type=int, default=600, help="Max recall narrative length (lower = shorter context)")
+    parser.add_argument("--location_max_chars", type=int, default=600, help="Max location narrative length")
+    parser.add_argument("--inventory_max_chars", type=int, default=600, help="Max inventory narrative length")
+    parser.add_argument("--transfer_max_chars", type=int, default=600, help="Max transfer narrative length")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
     parser.add_argument("--output_dir", type=str, default="experiments", help="Output directory")
     args = parser.parse_args()
@@ -63,7 +67,13 @@ def main():
 
     # Generate dataset
     print("Generating dataset...")
-    dataset = generate_dataset(n_samples=args.n_samples, seed=args.seed)
+    dataset = generate_dataset(
+        n_samples=args.n_samples, seed=args.seed,
+        location_max_chars=args.location_max_chars,
+        inventory_max_chars=args.inventory_max_chars,
+        transfer_max_chars=args.transfer_max_chars,
+        recall_max_chars=args.recall_max_chars,
+    )
     print(f"Generated {len(dataset)} samples")
 
     # Split
@@ -71,18 +81,17 @@ def main():
     val_data = dataset[int(0.8 * len(dataset)):]
     print(f"Train: {len(train_data)}, Val: {len(val_data)}")
 
-    # Build tokenizer
+    # Build tokenizer from the *formatted* texts so format markers
+    # ("Question:", "Answer:", newline) are in-vocab, not UNK.
     print("Building tokenizer...")
-    tokenizer = build_tokenizer_from_dataset(dataset)
+    train_texts = [format_for_training(s) for s in train_data]
+    val_texts = [format_for_training(s) for s in val_data]
+    tokenizer = CharTokenizer(train_texts, max_vocab=256)
     print(f"Vocabulary size: {tokenizer.vocab_size}")
 
     # Save tokenizer
     os.makedirs(args.output_dir, exist_ok=True)
     tokenizer.save(os.path.join(args.output_dir, "tokenizer.json"))
-
-    # Build text lists for training
-    train_texts = [f"{s['narrative']} {s['question']} {s['answer']}" for s in train_data if s["question"]]
-    val_texts = [f"{s['narrative']} {s['question']} {s['answer']}" for s in val_data if s["question"]]
 
     # Create config
     config = ExperimentConfig(
@@ -154,8 +163,27 @@ def main():
         print(f"Final QA accuracy: {last_qa['overall_accuracy']:.3f}")
         for task, acc in last_qa['task_accuracy'].items():
             print(f"  {task}: {acc:.3f}")
+        print("  Stratified (by difficulty bucket):")
+        for bkey, acc in sorted(last_qa['stratified'].items()):
+            print(f"    {bkey:<28} {acc:.3f}")
     print(f"Results saved to: {trainer.output_dir}")
     print(f"{'='*60}")
+
+    # Kaggle: persist the model + metrics into /kaggle/working (the only
+    # directory Kaggle keeps as "Output" after the run). Guarded so local
+    # runs are unaffected.
+    import shutil, glob
+    kaggle_working = "/kaggle/working"
+    if os.path.isdir(kaggle_working):
+        out_dir = os.path.join(kaggle_working, args.exp_id)
+        os.makedirs(out_dir, exist_ok=True)
+        for f in glob.glob(os.path.join(trainer.output_dir, "*")):
+            shutil.copy(f, out_dir)
+        # Also drop a clearly-named copy at the top level of the Output panel.
+        best = os.path.join(trainer.output_dir, "best_model.pt")
+        if os.path.exists(best):
+            shutil.copy(best, os.path.join(kaggle_working, f"{args.exp_id}_best_model.pt"))
+        print(f"Saved model + metrics to {kaggle_working} (Kaggle Output)")
 
     return metrics
 

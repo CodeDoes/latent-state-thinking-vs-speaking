@@ -1,0 +1,10 @@
+# Don't upload local run artifacts / logs to Kaggle
+kaggle_output/
+experiments/
+*.log
+FINAL_REPORT.txt
+bench_report.md
+bench_results.json
+__pycache__/
+.devenv*
+.kaggleignore
