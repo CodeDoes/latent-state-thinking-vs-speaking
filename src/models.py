@@ -3,8 +3,15 @@ Model architectures for the hybrid latent-state language model.
 
 Models:
   - BaselineTransformer: standard autoregressive transformer
-  - LatentSSM: recurrent latent model with thinking loop
-  - LatentSSMDecoder: SSM + FFN decoder (cheap token generation)
+  - LatentSSM: recurrent latent model with thinking loop (causal LM)
+  - LatentSSMDecoder: SSM + FFN decoder (cheap multi-token generation)
+
+Key design: All models produce [batch, seq_len, vocab_size] output for
+fair comparison on next-token prediction.
+
+The latent models additionally perform N "thinking" steps in latent space
+between processing input tokens, testing whether extra latent computation
+improves reasoning over pure token-by-token processing.
 """
 
 import math
@@ -41,6 +48,8 @@ class BaselineTransformer(nn.Module):
 
     Architecture:
       tokens -> embedding + positional encoding -> transformer layers -> logits
+
+    Output: [batch, seq_len, vocab_size]
     """
 
     def __init__(
@@ -100,8 +109,7 @@ class SSMLayer(nn.Module):
     Uses a recurrent update: h_t = A * h_{t-1} + B * x_t
     where A and B are learned projections.
 
-    This is a simplified version — a full Mamba/S4 would use
-    structured convolutions and selective scan.
+    Supports both sequential processing and single-step updates.
     """
 
     def __init__(self, d_state: int, d_input: int):
@@ -124,6 +132,8 @@ class SSMLayer(nn.Module):
 
     def forward(self, x: torch.Tensor, h: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Process a sequence of inputs.
+
         Args:
             x: [batch, seq_len, d_input] input
             h: [batch, d_state] initial state (optional)
@@ -137,25 +147,30 @@ class SSMLayer(nn.Module):
 
         outputs = []
         for t in range(seq_len):
-            # SSM update: h_t = act(A @ h_{t-1} + B(x_t))
-            h = torch.einsum('ij,bj->bi', self.A, h) + self.B(x[:, t, :])
-            h = self.act(h)
+            h = self.step(x[:, t, :], h)
             outputs.append(h)
 
         outputs = torch.stack(outputs, dim=1)  # [batch, seq_len, d_state]
-        outputs = self.norm(outputs)
         return outputs, h
 
     def step(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
-        """Single recurrent step for latent thinking loop."""
+        """
+        Single recurrent step.
+
+        Args:
+            x: [batch, d_input] input at current step
+            h: [batch, d_state] current state
+        Returns:
+            h_new: [batch, d_state] updated state
+        """
         h = torch.einsum('ij,bj->bi', self.A, h) + self.B(x)
         h = self.act(h)
-        h = self.norm(h.unsqueeze(1)).squeeze(1)
+        h = self.norm(h)
         return h
 
 
 # ============================================================
-# Latent SSM Model
+# Latent SSM Model (Causal LM with thinking steps)
 # ============================================================
 
 class LatentSSM(nn.Module):
@@ -163,13 +178,17 @@ class LatentSSM(nn.Module):
     Recurrent latent model with thinking loop.
 
     Architecture:
-      tokens -> embedding -> encode to latent state
-      latent_state = SSM_step(latent_state) × N  (thinking)
-      latent_state -> decoder -> logits
+      For each input token:
+        1. Embed token
+        2. Update SSM state
+        3. Every `think_every` tokens: do N latent thinking steps
+        4. Decode state -> logits for this position
 
-    Two modes:
-      - Training: encode all tokens, think, decode
-      - Generation: state-only thinking, then cheap token decode
+    This produces [batch, seq_len, vocab_size] output, same as the baseline,
+    enabling fair comparison. The latent model does extra computation
+    (thinking steps) between token predictions.
+
+    Output: [batch, seq_len, vocab_size]
     """
 
     def __init__(
@@ -179,14 +198,19 @@ class LatentSSM(nn.Module):
         d_model: int = 256,
         num_ssm_layers: int = 2,
         latent_steps: int = 4,
+        think_every: int = 1,
         dropout: float = 0.1,
     ):
         super().__init__()
         self.d_state = d_state
+        self.d_model = d_model
         self.latent_steps = latent_steps
+        self.think_every = think_every
 
         self.embedding = nn.Embedding(vocab_size, d_model)
-        self.state_proj = nn.Linear(d_model, d_state)
+
+        # Input projection (token embedding -> SSM input)
+        self.input_proj = nn.Linear(d_model, d_state)
 
         # Stack of SSM layers
         self.ssm_layers = nn.ModuleList([
@@ -201,26 +225,18 @@ class LatentSSM(nn.Module):
             nn.Linear(d_state * 2, d_state),
         )
 
-        # Token decoder (cheap readout)
+        # Token decoder (from state to vocab)
         self.token_decoder = nn.Linear(d_state, vocab_size)
 
-        # Residual gating
+        # Residual gating for thinking steps
         self.gate = nn.Sequential(
             nn.Linear(d_state, d_state),
             nn.Sigmoid(),
         )
 
-    def encode(self, src: torch.Tensor, h: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Encode input tokens into latent state."""
-        x = self.embedding(src)  # [batch, seq, d_model]
-        # Pool sequence into state
-        x = x.mean(dim=1)  # [batch, d_model]
-        h = self.state_proj(x)  # [batch, d_state]
-        return h
-
     def think(self, h: torch.Tensor, steps: Optional[int] = None) -> torch.Tensor:
         """
-        Run latent thinking steps without emitting tokens.
+        Run latent thinking steps without consuming input tokens.
 
         Args:
             h: [batch, d_state] current state
@@ -232,6 +248,7 @@ class LatentSSM(nn.Module):
         for _ in range(steps):
             h_new = h
             for ssm in self.ssm_layers:
+                # Self-recurrence: use state as both input and state
                 h_new = ssm.step(h_new, h_new)
             h_new = self.ffn(h_new)
             # Gated residual
@@ -239,33 +256,42 @@ class LatentSSM(nn.Module):
             h = gate * h_new + (1 - gate) * h
         return h
 
-    def decode(self, h: torch.Tensor) -> torch.Tensor:
-        """Decode latent state to token logits (cheap readout)."""
-        logits = self.token_decoder(h)  # [batch, vocab_size]
-        return logits
-
-    def forward(
-        self,
-        src: torch.Tensor,
-        latent_steps: Optional[int] = None,
-        h: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, src: torch.Tensor) -> torch.Tensor:
         """
-        Full forward pass: encode -> think -> decode.
+        Full forward pass: process tokens sequentially with optional thinking.
 
         Args:
             src: [batch, seq_len] token IDs
-            latent_steps: override number of thinking steps
-            h: initial state (optional, for continuation)
         Returns:
-            logits: [batch, vocab_size]
-            h: [batch, d_state] final state
+            logits: [batch, seq_len, vocab_size]
         """
-        if h is None:
-            h = self.encode(src)
-        h = self.think(h, steps=latent_steps)
-        logits = self.decode(h)
-        return logits, h
+        batch, seq_len = src.shape
+        device = src.device
+
+        # Initialize state
+        h = torch.zeros(batch, self.d_state, device=device)
+
+        # Embed all tokens
+        x = self.embedding(src)  # [batch, seq, d_model]
+        x = self.input_proj(x)   # [batch, seq, d_state]
+
+        all_logits = []
+
+        for t in range(seq_len):
+            # Update SSM state with current token
+            for ssm in self.ssm_layers:
+                h = ssm.step(x[:, t, :], h)
+
+            # Periodic latent thinking
+            if self.think_every > 0 and (t + 1) % self.think_every == 0:
+                h = self.think(h)
+
+            # Decode to logits
+            logits_t = self.token_decoder(h)  # [batch, vocab_size]
+            all_logits.append(logits_t)
+
+        logits = torch.stack(all_logits, dim=1)  # [batch, seq_len, vocab_size]
+        return logits
 
 
 # ============================================================
@@ -277,9 +303,14 @@ class LatentSSMDecoder(nn.Module):
     SSM + FFN decoder for multi-token generation.
 
     Key difference from LatentSSM:
-    - Decoder is a separate small network (cheap)
-    - Can generate multiple tokens per state update
+    - After thinking, can generate multiple tokens cheaply from same state
+    - Decoder uses positional embeddings to generate tokens_per_step tokens
     - State evolves slowly, tokens generated quickly
+
+    Training mode: produces [batch, seq_len, vocab_size] for fair comparison
+    Generation mode: can produce multiple tokens per state update
+
+    Output: [batch, seq_len, vocab_size]
     """
 
     def __init__(
@@ -290,15 +321,18 @@ class LatentSSMDecoder(nn.Module):
         num_ssm_layers: int = 2,
         latent_steps: int = 4,
         tokens_per_step: int = 8,
+        think_every: int = 4,
         dropout: float = 0.1,
     ):
         super().__init__()
         self.d_state = d_state
+        self.d_model = d_model
         self.latent_steps = latent_steps
         self.tokens_per_step = tokens_per_step
+        self.think_every = think_every
 
         self.embedding = nn.Embedding(vocab_size, d_model)
-        self.state_proj = nn.Linear(d_model, d_state)
+        self.input_proj = nn.Linear(d_model, d_state)
 
         # SSM layers
         self.ssm_layers = nn.ModuleList([
@@ -328,12 +362,8 @@ class LatentSSMDecoder(nn.Module):
             nn.Sigmoid(),
         )
 
-    def encode(self, src: torch.Tensor) -> torch.Tensor:
-        x = self.embedding(src)
-        x = x.mean(dim=1)
-        return self.state_proj(x)
-
     def think(self, h: torch.Tensor, steps: Optional[int] = None) -> torch.Tensor:
+        """Run latent thinking steps."""
         steps = steps or self.latent_steps
         for _ in range(steps):
             h_new = h
@@ -357,32 +387,59 @@ class LatentSSMDecoder(nn.Module):
         n_tokens = min(n_tokens, self.tokens_per_step)
         batch = h.size(0)
 
-        # Expand state with position embeddings
-        h_expanded = h.unsqueeze(1).expand(-1, n_tokens, -1)  # [batch, n_tokens, d_state]
-        pos = self.pos_embed[:n_tokens].unsqueeze(0).expand(batch, -1, -1)  # [batch, n_tokens, 32]
+        h_expanded = h.unsqueeze(1).expand(-1, n_tokens, -1)
+        pos = self.pos_embed[:n_tokens].unsqueeze(0).expand(batch, -1, -1)
 
-        x = torch.cat([h_expanded, pos], dim=-1)  # [batch, n_tokens, d_state + 32]
-        logits = self.decoder_ffn(x)  # [batch, n_tokens, vocab_size]
+        x = torch.cat([h_expanded, pos], dim=-1)
+        logits = self.decoder_ffn(x)
         return logits
 
-    def forward(
-        self,
-        src: torch.Tensor,
-        latent_steps: Optional[int] = None,
-        n_tokens: int = 8,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, src: torch.Tensor) -> torch.Tensor:
         """
-        Full forward: encode -> think -> decode multiple tokens.
+        Full forward pass for training.
+
+        Process tokens sequentially, periodically think, and decode
+        multiple tokens per state. For fair comparison with baseline,
+        produces [batch, seq_len, vocab_size].
 
         Args:
             src: [batch, seq_len] token IDs
-            latent_steps: number of thinking steps
-            n_tokens: tokens to generate per state update
         Returns:
-            logits: [batch, n_tokens, vocab_size]
-            h: [batch, d_state] final state
+            logits: [batch, seq_len, vocab_size]
         """
-        h = self.encode(src)
-        h = self.think(h, steps=latent_steps)
-        logits = self.decode_tokens(h, n_tokens)
-        return logits, h
+        batch, seq_len = src.shape
+        device = src.device
+
+        # Initialize state
+        h = torch.zeros(batch, self.d_state, device=device)
+
+        # Embed all tokens
+        x = self.embedding(src)
+        x = self.input_proj(x)
+
+        all_logits = []
+        token_idx = 0  # How many output tokens we've produced from current state
+
+        for t in range(seq_len):
+            # Update SSM state with current token
+            for ssm in self.ssm_layers:
+                h = ssm.step(x[:, t, :], h)
+
+            # Periodic latent thinking
+            if self.think_every > 0 and (t + 1) % self.think_every == 0:
+                h = self.think(h)
+                token_idx = 0  # Reset token counter after thinking
+
+            # Decode from current state
+            if token_idx < self.tokens_per_step:
+                logits_t = self.decode_tokens(h, 1)  # [batch, 1, vocab]
+                logits_t = logits_t.squeeze(1)  # [batch, vocab]
+                token_idx += 1
+            else:
+                # Just decode directly without positional bias
+                logits_t = self.decode_tokens(h, 1).squeeze(1)
+
+            all_logits.append(logits_t)
+
+        logits = torch.stack(all_logits, dim=1)  # [batch, seq_len, vocab_size]
+        return logits

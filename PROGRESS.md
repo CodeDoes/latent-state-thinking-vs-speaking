@@ -80,17 +80,19 @@ Prefix Tape Memory          SSM State
 | Kaggle integration | ✅ API auth (kitastro), notebook, push script |
 | Toy world generator | ✅ `src/dataset.py` — location/inventory/recall/story tasks |
 | Tokenizer | ✅ `src/tokenizer.py` — character-level with special tokens |
-| Models | ✅ `src/models.py` — BaselineTransformer, LatentSSM, LatentSSMDecoder |
+| Models | ✅ `src/models.py` — **UPDATED**: All models produce [batch, seq_len, vocab_size] |
 | SSM layer | ✅ `src/models.py` — simplified Mamba-style recurrent update |
-| Latent thinking loop | ✅ `src/models.py` — think() method with gated residual |
+| Latent thinking loop | ✅ `src/models.py` — **UPDATED**: Sequential token processing with `think_every` parameter |
 | Token decoder | ✅ `src/models.py` — cheap FFN readout + multi-token decode |
-| Trainer | ✅ `src/trainer.py` — training loop, checkpointing, QA eval |
-| Experiment runner | ✅ `run_experiment.py` — CLI for running experiments |
-| Kaggle notebook | ✅ `notebook.ipynb` — GPU-ready notebook with all 5 experiments |
+| Trainer | ✅ `src/trainer.py` — **UPDATED**: Unified training for all model types |
+| Experiment runner | ✅ `run_experiment.py` — **UPDATED**: Added `think_every` and `max_seq_len` params |
+| Kaggle notebook | ✅ `notebook.ipynb` — **REGENERATED**: Matches new architecture, GPU-ready |
 | Kaggle push | ✅ `kaggle_push.py` — push/monitor/download via Kaggle API |
+| Bug fixes | ✅ Fixed tokenizer vocab construction, dataset empty inventory edge case |
+| CPU validation | ✅ All 3 models train successfully on CPU |
 | Prefix tape memory | ⬜ Not started |
 | Managed context | ⬜ Not started |
-| Phase 1 experiments | ⬜ Ready to run |
+| Phase 1 experiments | 🔄 Ready to run on Kaggle GPU |
 | Level 0 proven | ⬜ |
 
 ---
@@ -132,15 +134,54 @@ Standard next-token prediction encourages shortcutting. Need:
 
 ## Next Steps
 
-**Ready:** Phase 1 baseline experiments (Level 0 — "Does latent state work at all?")
+**Ready:** Phase 1 baseline experiments on Kaggle GPU (Level 0 — "Does latent state work at all?")
 
-1. `python run_experiment.py --exp_id exp001 --model baseline` — verify training works
-2. `python run_experiment.py --exp_id exp002 --model latent_ssm --latent_steps 1` — SSM baseline
-3. `python run_experiment.py --exp_id exp003 --model latent_ssm --latent_steps 4` — 4 thinking steps
-4. Push to Kaggle GPU: `python kaggle_push.py --run`
-5. Download and compare results
+### Architecture Improvements Made:
+1. **Unified output format**: All models now produce [batch, seq_len, vocab_size] for fair comparison
+2. **Sequential token processing**: LatentSSM now processes tokens one-by-one (not mean pooling)
+3. **Periodic thinking**: Added `think_every` parameter to control thinking frequency
+4. **Fixed bugs**: Tokenizer vocab construction, dataset edge cases
+5. **Validated on CPU**: All models train successfully, pipeline works end-to-end
 
-**First night win condition:** A 20M parameter latent-state model with 4 recurrent thinking steps achieves X% better long-horizon recall than a same-size autoregressive model.
+### Run Experiments on Kaggle GPU:
+
+**Option A: Using notebook.ipynb (recommended)**
+```bash
+python kaggle_push.py --run
+```
+
+**Option B: Using run_experiment.py (individual experiments)**
+```bash
+# Baseline transformer
+python run_experiment.py --exp_id exp001 --model baseline --d_model 256 --epochs 30 --device cuda
+
+# SSM only (no thinking)
+python run_experiment.py --exp_id exp002 --model latent_ssm --latent_steps 0 --think_every 0 --d_model 256 --epochs 30
+
+# SSM + thinking (every 4 tokens)
+python run_experiment.py --exp_id exp003 --model latent_ssm --latent_steps 4 --think_every 4 --d_model 256 --epochs 30
+
+# SSM + thinking (every 8 tokens)
+python run_experiment.py --exp_id exp004 --model latent_ssm --latent_steps 4 --think_every 8 --d_model 256 --epochs 30
+
+# SSM + decoder
+python run_experiment.py --exp_id exp005 --model latent_ssm_decoder --latent_steps 4 --think_every 4 --d_model 256 --epochs 30
+```
+
+### Key Metrics to Compare:
+- **Validation loss**: Does latent thinking improve generalization?
+- **Training speed**: How much overhead do thinking steps add?
+- **Parameter efficiency**: Same performance with fewer params?
+- **Qualitative**: Do latent models reason better on location/inventory tasks?
+
+**First night win condition:** A latent-state model with periodic thinking steps achieves better validation loss than baseline transformer on reasoning tasks.
+
+### Expected Outcomes:
+- exp001 (baseline): Reference point for comparison
+- exp002 (SSM, no thinking): Pure recurrent baseline — tests if sequential processing helps
+- exp003 (SSM, think every 4): Main hypothesis test — does thinking help?
+- exp004 (SSM, think every 8): Test thinking frequency — less frequent = faster?
+- exp005 (SSM+decoder): Test multi-token generation variant
 
 ---
 
@@ -165,3 +206,30 @@ Standard next-token prediction encourages shortcutting. Need:
 **Critical experiment:** Train on long documents where the model is *punished* if SSM memorizes names/passwords but *rewarded* if it reasons correctly. This forces specialization.
 
 **Reference:** [JEPA-Reasoner: Decoupling Latent Reasoning from Token Generation](https://arxiv.org/abs/2512.19171)
+
+### 2026-07-11 — Architecture improvements & validation
+
+**Changes made:**
+
+1. **Unified output format**: All models (BaselineTransformer, LatentSSM, LatentSSMDecoder) now produce [batch, seq_len, vocab_size] output for fair comparison. Previously, latent models produced [batch, vocab_size] which made training inefficient.
+
+2. **Sequential token processing**: LatentSSM now processes tokens sequentially through SSM layers (not mean pooling). This properly implements the recurrent nature of SSMs and allows the model to maintain state across the sequence.
+
+3. **Periodic thinking**: Added `think_every` parameter to control how often latent thinking steps occur. This allows testing different thinking frequencies (e.g., think every 4 tokens vs every 8 tokens).
+
+4. **Bug fixes**:
+   - Fixed tokenizer vocab construction (was missing `enumerate`)
+   - Fixed dataset generation edge case (empty inventory causing IndexError)
+   - Ensured at least one entity has items in world initialization
+
+5. **Trainer simplification**: Since all models now have unified output, trainer code is simpler and more maintainable.
+
+6. **CPU validation**: Successfully trained all 3 models on CPU:
+   - BaselineTransformer: ~8s/epoch on 100 samples
+   - LatentSSM: ~106s/epoch (slower due to sequential processing + thinking)
+   - LatentSSMDecoder: ~64s/epoch
+   - All models show decreasing loss, pipeline works end-to-end
+
+**Key insight**: The sequential processing makes latent models slower but this is the correct architecture. On GPU, we can use `think_every=4` or `think_every=8` to balance computation vs performance. The hypothesis is that periodic thinking steps will improve reasoning on long-horizon tasks.
+
+**Next**: Run experiments on Kaggle GPU to get real results. The notebook is ready with 5 experiments comparing baseline, SSM variants with different thinking frequencies, and the decoder model.

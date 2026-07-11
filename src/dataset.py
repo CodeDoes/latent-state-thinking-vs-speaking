@@ -50,9 +50,14 @@ class World:
         self._init_world()
 
     def _init_world(self):
-        for name in random.sample(self.names, k=random.randint(2, 4)):
+        names_subset = random.sample(self.names, k=random.randint(2, 4))
+        for i, name in enumerate(names_subset):
             loc = random.choice(self.locations)
-            inv = random.sample(self.items, k=random.randint(0, 2))
+            # Guarantee at least the first entity has some items
+            if i == 0:
+                inv = random.sample(self.items, k=random.randint(1, 2))
+            else:
+                inv = random.sample(self.items, k=random.randint(0, 2))
             self.entities[name] = Entity(name=name, location=loc, inventory=inv)
 
     def _narrate(self, sentence: str):
@@ -198,7 +203,8 @@ def generate_inventory_task(
     narrative = " ".join(s for s in sentences if s)
 
     # Question about inventory
-    target = random.choice([n for n in names if world.entities[n].inventory])
+    entities_with_items = [n for n in names if world.entities[n].inventory]
+    target = random.choice(entities_with_items) if entities_with_items else random.choice(names)
     question = f"What does {target} have?"
     answer = " and ".join(world.entities[target].inventory) if world.entities[target].inventory else "nothing"
 

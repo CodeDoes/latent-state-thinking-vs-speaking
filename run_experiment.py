@@ -40,9 +40,11 @@ def main():
                         choices=["baseline", "latent_ssm", "latent_ssm_decoder"],
                         help="Model type")
     parser.add_argument("--latent_steps", type=int, default=4, help="Number of latent thinking steps")
+    parser.add_argument("--think_every", type=int, default=4, help="Run thinking steps every N tokens")
     parser.add_argument("--d_model", type=int, default=256, help="Model dimension")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--epochs", type=int, default=20, help="Number of epochs")
+    parser.add_argument("--max_seq_len", type=int, default=128, help="Maximum sequence length")
     parser.add_argument("--n_samples", type=int, default=5000, help="Number of training samples")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
@@ -91,6 +93,7 @@ def main():
         latent_steps=args.latent_steps,
         batch_size=args.batch_size,
         num_epochs=args.epochs,
+        max_seq_len=args.max_seq_len,
         seed=args.seed,
         device=args.device,
     )
@@ -111,6 +114,7 @@ def main():
             d_model=args.d_model,
             num_ssm_layers=2,
             latent_steps=args.latent_steps,
+            think_every=args.think_every,
         )
     elif args.model == "latent_ssm_decoder":
         model = LatentSSMDecoder(
@@ -120,6 +124,7 @@ def main():
             num_ssm_layers=2,
             latent_steps=args.latent_steps,
             tokens_per_step=8,
+            think_every=args.think_every,
         )
     else:
         raise ValueError(f"Unknown model: {args.model}")
@@ -129,8 +134,8 @@ def main():
 
     # Create datasets
     from src.trainer import TextDataset, DataLoader
-    train_dataset = TextDataset(train_texts, tokenizer, max_len=256)
-    val_dataset = TextDataset(val_texts, tokenizer, max_len=256)
+    train_dataset = TextDataset(train_texts, tokenizer, max_len=args.max_seq_len)
+    val_dataset = TextDataset(val_texts, tokenizer, max_len=args.max_seq_len)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
 

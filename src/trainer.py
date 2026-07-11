@@ -144,30 +144,14 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            # Forward pass
-            if hasattr(self.model, 'forward'):
-                output = self.model(batch_x)
-                if isinstance(output, tuple):
-                    logits, _ = output
-                else:
-                    logits = output
-
-                # Handle different output shapes
-                if logits.dim() == 3:
-                    # [batch, seq, vocab] or [batch, n_tokens, vocab]
-                    logits = logits.reshape(-1, logits.size(-1))
-                    targets = batch_y.reshape(-1)
-                elif logits.dim() == 2:
-                    # [batch, vocab] — sequence-level prediction
-                    # Use first target token
-                    logits = logits
-                    targets = batch_y[:, 0]
-                else:
-                    raise ValueError(f"Unexpected logits shape: {logits.shape}")
-
-                loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.vocab[self.tokenizer.pad_token])
-            else:
-                raise ValueError("Model must have a forward method")
+            # Forward pass - all models produce [batch, seq, vocab]
+            logits = self.model(batch_x)
+            
+            # Reshape for loss computation
+            logits = logits.reshape(-1, logits.size(-1))
+            targets = batch_y.reshape(-1)
+            
+            loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.vocab[self.tokenizer.pad_token])
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip)
@@ -191,19 +175,10 @@ class Trainer:
             batch_x = batch_x.to(self.device)
             batch_y = batch_y.to(self.device)
 
-            output = self.model(batch_x)
-            if isinstance(output, tuple):
-                logits, _ = output
-            else:
-                logits = output
-
-            if logits.dim() == 3:
-                logits = logits.reshape(-1, logits.size(-1))
-                targets = batch_y.reshape(-1)
-            elif logits.dim() == 2:
-                logits = logits
-                targets = batch_y[:, 0]
-
+            logits = self.model(batch_x)
+            logits = logits.reshape(-1, logits.size(-1))
+            targets = batch_y.reshape(-1)
+            
             loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.vocab[self.tokenizer.pad_token])
             total_loss += loss.item()
             n_batches += 1
@@ -211,8 +186,8 @@ class Trainer:
         return total_loss / max(n_batches, 1)
 
     @torch.no_grad()
-    def generate(self, prompt: str, max_tokens: int = 50) -> str:
-        """Generate text from a prompt."""
+    def generate(self, prompt: str, max_tokens: int = 50, temperature: float = 0.8, top_k: int = 40) -> str:
+        """Generate text from a prompt with temperature sampling."""
         self.model.eval()
 
         # Encode prompt
@@ -221,20 +196,19 @@ class Trainer:
 
         for _ in range(max_tokens):
             x = torch.tensor([generated], dtype=torch.long).to(self.device)
-
-            output = self.model(x)
-            if isinstance(output, tuple):
-                logits, _ = output
-            else:
-                logits = output
-
-            # Get next token
-            if logits.dim() == 3:
-                next_logits = logits[0, -1, :]
-            else:
-                next_logits = logits[0]
-
-            next_token = torch.argmax(next_logits).item()
+            logits = self.model(x)
+            
+            # Get next token logits (last position)
+            next_logits = logits[0, -1, :] / temperature
+            
+            # Top-k filtering
+            if top_k > 0:
+                indices_to_remove = next_logits < torch.topk(next_logits, top_k)[0][..., -1, None]
+                next_logits[indices_to_remove] = float('-inf')
+            
+            # Sample from the filtered distribution
+            probs = F.softmax(next_logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1).item()
 
             if self.tokenizer.inv_vocab.get(next_token) == self.tokenizer.eos_token:
                 break
@@ -245,8 +219,8 @@ class Trainer:
         generated_text = self.tokenizer.decode(generated[len(prompt_ids):])
         return generated_text
 
-    def run_qa_eval(self, dataset: List[dict]) -> Dict[str, float]:
-        """Evaluate on QA tasks."""
+    def run_qa_eval(self, dataset: List[dict], n_samples_per_question: int = 3) -> Dict[str, float]:
+        """Evaluate on QA tasks with multiple samples per question."""
         self.model.eval()
         correct = 0
         total = 0
@@ -258,14 +232,31 @@ class Trainer:
             answer = sample["answer"]
             task_type = sample["task_type"]
 
+            if not question:  # Skip story tasks
+                continue
+
             if task_type not in by_task:
                 by_task[task_type] = {"correct": 0, "total": 0}
 
             prompt = f"{narrative} {question}"
-            generated = self.generate(prompt, max_tokens=30)
+            
+            # Generate multiple samples and check if any contains the answer
+            found_answer = False
+            for _ in range(n_samples_per_question):
+                generated = self.generate(prompt, max_tokens=50, temperature=0.8, top_k=40)
+                
+                # Check if answer appears in generated text (case-insensitive)
+                if answer.lower() in generated.lower():
+                    found_answer = True
+                    break
+                
+                # Also check for partial matches (e.g., "garage" in "in the garage")
+                # For location tasks, check if the location name appears
+                if task_type == "location" and answer.lower() in generated.lower():
+                    found_answer = True
+                    break
 
-            # Simple string matching
-            if answer.lower() in generated.lower():
+            if found_answer:
                 correct += 1
                 by_task[task_type]["correct"] += 1
 

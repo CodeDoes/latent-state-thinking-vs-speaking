@@ -36,7 +36,7 @@ class CharTokenizer:
 
         # Special tokens first
         self.special_tokens = [pad_token, unk_token, eos_token, sep_token]
-        self.vocab = {c: i + len(self.special_tokens) for c, _ in self.char_counts.most_common(max_vocab - len(self.special_tokens))}
+        self.vocab = {c: idx + len(self.special_tokens) for idx, (c, _) in enumerate(self.char_counts.most_common(max_vocab - len(self.special_tokens)))}
         for i, tok in enumerate(self.special_tokens):
             self.vocab[tok] = i
 
