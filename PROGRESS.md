@@ -92,7 +92,7 @@ Prefix Tape Memory          SSM State
 | CPU validation | ✅ All 3 models train successfully on CPU |
 | Prefix tape memory | ⬜ Not started |
 | Managed context | ⬜ Not started |
-| Phase 1 experiments | 🔄 Ready to run on Kaggle GPU |
+| Phase 1 experiments | 🚀 Running on Kaggle GPU (v19) via bench.py |
 | Level 0 proven | ⬜ |
 
 ---
@@ -320,3 +320,62 @@ python run_experiment.py --exp_id exp005 --model latent_ssm_decoder --latent_ste
 3. Analyze results with analyze_results.py
 4. Compare val loss across experiments
 5. Check if hypothesis is confirmed (latent thinking improves reasoning)
+
+### 2026-07-11 — Reusable-script refactor + fair same-size experiment
+
+**Problem found in the earlier Kaggle run (exp001-005, val_loss ~0.26):**
+- The comparison was **unfair**: baseline was 2.14M params, latent models 34.2M.
+  A "same size" test (the 'first night' win condition) was never done.
+- The notebook never computed **strict QA accuracy** — only train/val loss + a
+  few hand-picked samples. So we had no idea the models could not actually
+  *answer* questions (classic 'low loss but useless output').
+- The notebook **inlined** all model code (no shared `src/`), so improving `src/`
+  did not affect the Kaggle run.
+
+**Changes made (all via reusable scripts):**
+1. `bench.py` is now the single entry point: train + **strict greedy exact-match
+   QA eval** (per task AND by difficulty bucket) + rich report that flags
+   'low loss but useless output'. Added `baseline_big` (~33M) so latent models
+   (~34M) are compared at **equal parameter count**. Emits `STAGE:` lines.
+2. `kaggle_run.py`: local pre-flight self-check (imports `src/`, tiny forward)
+   → push → monitor (fail-fast on traceback) → download + `bench.py --analyze`.
+3. `gen_notebook.py`: notebook is now a **self-contained wrapper** that embeds
+   the real `src/*.py` + `bench.py` as `%%writefile` cells (recreated on disk at
+   runtime), then runs `bench.py` as a subprocess. `kaggle kernels push` only
+   uploads the notebook file, so the files must be recreated inside it.
+4. `src/dataset.py`: `build_prompt` now ends with `"Answer: "` (trailing space)
+   to exactly match the training surface form.
+5. P100 torch fix: detect GPU via `nvidia-smi` BEFORE importing torch; install
+   torch 2.3.1 only if P100. Training runs in the `bench.py` subprocess, so the
+   notebook process never imports torch (avoids the 'triton' double-registration
+   error from `importlib.reload`).
+
+**Diagnosis of the failure chain during rollout:**
+- v16: COMPAT imported torch then `reload`ed it after P100 downgrade →
+  'Only a single TORCH_LIBRARY can be used to register triton' error.
+- v17: removed torch import from notebook, but `bench.py`/`src/` were never
+  uploaded (push only sends the notebook) → `bench.py: No such file`.
+- v18: embedded files via `%%writefile`, but the empty `src/__init__.py` cell
+  errored ('cell body is empty').
+- v19 (LIVE): use namespace package (no `__init__.py` writefile); files recreated
+  on disk; `bench.py` runs as a subprocess. Status: RUNNING on Kaggle GPU.
+
+**Run v19 battery (matched params):**
+- `baseline` ~2.1M (efficient AR reference)
+- `baseline_big` ~33.1M (AR at the SAME size as the latent models)
+- `latent_ssm` 34.3M, thinking=0 (isolates the thinking effect)
+- `latent_ssm_think` 34.3M, think every 4 (main hypothesis)
+- `latent_ssm_decoder` 34.4M, multi-token decoder
+
+Config: 20 epochs, 5000 samples, d_model 256, strict QA eval every epoch.
+
+**Local validation done:** `bench.py --quick` (train + strict eval + report runs
+end-to-end on CPU) and `kaggle_run.py` pre-flight both pass. `bench.py --analyze`
+reports existing experiment dirs.
+
+**Next:** wait for v19 to finish, then `python3 kaggle_run.py --download-only`
+(which downloads + runs `bench.py --analyze`) to get the strict QA numbers and
+finally answer Level 0 ('Does latent state work at all?'). Expect the answer
+fractions to be low — next-token prediction on templated data likely shortcuts
+reasoning — which would motivate the auxiliary losses in AGENTS.md (latent
+consistency / reconstruction / evolution).
