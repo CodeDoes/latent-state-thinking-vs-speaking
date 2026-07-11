@@ -104,22 +104,32 @@ class BaselineTransformer(nn.Module):
 
 class SSMLayer(nn.Module):
     """
-    Simplified State Space Model layer.
+    State Space Model layer with input-dependent dynamics (Mamba-style).
 
-    Uses a recurrent update: h_t = A * h_{t-1} + B * x_t
-    where A and B are learned projections.
+    Uses a recurrent update: h_t = A(x_t) * h_{t-1} + B(x_t) * x_t
+    where A and B are functions of the input (selective mechanism).
 
-    Supports both sequential processing and single-step updates.
+    This allows the model to selectively remember/forget based on input.
     """
 
-    def __init__(self, d_state: int, d_input: int):
+    def __init__(self, d_state: int, d_input: int, selective: bool = True):
         super().__init__()
         self.d_state = d_state
         self.d_input = d_input
+        self.selective = selective
 
-        # State transition: h_t = A * h_{t-1} + B * x_t
-        self.A = nn.Parameter(torch.randn(d_state, d_state) * 0.1)
-        self.B = nn.Linear(d_input, d_state)
+        # Base state transition matrix
+        self.A_base = nn.Parameter(torch.randn(d_state, d_state) * 0.1)
+        
+        if selective:
+            # Input-dependent modulation of A
+            self.A_mod = nn.Linear(d_input, d_state * d_state, bias=False)
+            # Input-dependent B
+            self.B = nn.Linear(d_input, d_state, bias=False)
+        else:
+            # Simple fixed A and B
+            self.A = self.A_base
+            self.B = nn.Linear(d_input, d_state)
 
         # Output projection
         self.C = nn.Linear(d_state, d_state)
@@ -155,7 +165,7 @@ class SSMLayer(nn.Module):
 
     def step(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         """
-        Single recurrent step.
+        Single recurrent step with optional input-dependent dynamics.
 
         Args:
             x: [batch, d_input] input at current step
@@ -163,7 +173,18 @@ class SSMLayer(nn.Module):
         Returns:
             h_new: [batch, d_state] updated state
         """
-        h = torch.einsum('ij,bj->bi', self.A, h) + self.B(x)
+        if self.selective:
+            # Compute input-dependent A: A(x) = A_base + A_mod(x)
+            batch_size = x.size(0)
+            A_delta = self.A_mod(x).view(batch_size, self.d_state, self.d_state)
+            # Small modulation to keep stable
+            A = self.A_base.unsqueeze(0) + 0.1 * torch.tanh(A_delta)
+            # State update: h_new = A @ h + B(x)
+            h = torch.bmm(A, h.unsqueeze(-1)).squeeze(-1) + self.B(x)
+        else:
+            # Simple linear update
+            h = torch.einsum('ij,bj->bi', self.A_base, h) + self.B(x)
+        
         h = self.act(h)
         h = self.norm(h)
         return h
@@ -200,6 +221,7 @@ class LatentSSM(nn.Module):
         latent_steps: int = 4,
         think_every: int = 1,
         dropout: float = 0.1,
+        selective: bool = True,
     ):
         super().__init__()
         self.d_state = d_state
@@ -214,7 +236,7 @@ class LatentSSM(nn.Module):
 
         # Stack of SSM layers
         self.ssm_layers = nn.ModuleList([
-            SSMLayer(d_state, d_state) for _ in range(num_ssm_layers)
+            SSMLayer(d_state, d_state, selective=selective) for _ in range(num_ssm_layers)
         ])
 
         # FFN for latent thinking
@@ -323,6 +345,7 @@ class LatentSSMDecoder(nn.Module):
         tokens_per_step: int = 8,
         think_every: int = 4,
         dropout: float = 0.1,
+        selective: bool = True,
     ):
         super().__init__()
         self.d_state = d_state
@@ -336,7 +359,7 @@ class LatentSSMDecoder(nn.Module):
 
         # SSM layers
         self.ssm_layers = nn.ModuleList([
-            SSMLayer(d_state, d_state) for _ in range(num_ssm_layers)
+            SSMLayer(d_state, d_state, selective=selective) for _ in range(num_ssm_layers)
         ])
 
         # FFN for latent thinking
