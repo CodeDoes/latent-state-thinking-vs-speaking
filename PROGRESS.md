@@ -217,19 +217,30 @@ python run_experiment.py --exp_id exp005 --model latent_ssm_decoder --latent_ste
 
 3. **Periodic thinking**: Added `think_every` parameter to control how often latent thinking steps occur. This allows testing different thinking frequencies (e.g., think every 4 tokens vs every 8 tokens).
 
-4. **Bug fixes**:
+4. **Input-dependent SSM dynamics**: Added selective mechanism (Mamba-style) to SSMLayer:
+   - State transition matrix A is now modulated by input: A(x) = A_base + A_mod(x)
+   - Allows model to selectively remember/forget based on input content
+   - Parameter count increased from 841K to 34M (more comparable to 2.1M baseline)
+   - Applied to both LatentSSM and LatentSSMDecoder with `selective=True` by default
+
+5. **Bug fixes**:
    - Fixed tokenizer vocab construction (was missing `enumerate`)
    - Fixed dataset generation edge case (empty inventory causing IndexError)
    - Ensured at least one entity has items in world initialization
 
-5. **Trainer simplification**: Since all models now have unified output, trainer code is simpler and more maintainable.
+6. **Trainer simplification**: Since all models now have unified output, trainer code is simpler and more maintainable.
 
-6. **CPU validation**: Successfully trained all 3 models on CPU:
+7. **Evaluation improvements**: 
+   - Changed from greedy decoding to temperature sampling (T=0.8, top-k=40)
+   - Generates multiple samples per question (n=3) for better QA accuracy
+   - Better handling of story tasks
+
+8. **CPU validation**: Successfully trained all 3 models on CPU:
    - BaselineTransformer: ~8s/epoch on 100 samples
    - LatentSSM: ~106s/epoch (slower due to sequential processing + thinking)
    - LatentSSMDecoder: ~64s/epoch
    - All models show decreasing loss, pipeline works end-to-end
 
-**Key insight**: The sequential processing makes latent models slower but this is the correct architecture. On GPU, we can use `think_every=4` or `think_every=8` to balance computation vs performance. The hypothesis is that periodic thinking steps will improve reasoning on long-horizon tasks.
+**Key insight**: The sequential processing makes latent models slower but this is the correct architecture. On GPU, we can use `think_every=4` or `think_every=8` to balance computation vs performance. The input-dependent dynamics (selective mechanism) should help the model learn when to remember vs forget, making it more powerful than fixed SSM dynamics.
 
-**Next**: Run experiments on Kaggle GPU to get real results. The notebook is ready with 5 experiments comparing baseline, SSM variants with different thinking frequencies, and the decoder model.
+**Next**: Run experiments on Kaggle GPU to get real results. The notebook is ready with 5 experiments comparing baseline, SSM variants with different thinking frequencies, and the decoder model. With the selective SSM enhancement, the latent models should be more competitive with the baseline.
