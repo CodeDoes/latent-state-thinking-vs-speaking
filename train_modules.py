@@ -112,9 +112,9 @@ def train_state_map(module, src_fn, tgt_fn, samples, encoder, opt, device, epoch
     for ep in range(1, epochs + 1):
         tot = 0; n = 0
         for s in samples:
-            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device))
-            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device))
-            C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device))
+            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device)).detach()
+            C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
             src = src_fn(A, B, C)
             tgt = tgt_fn(A, B, C)
             opt.zero_grad()
@@ -133,17 +133,17 @@ def train_composer(composer, dec, samples, encoder, opt, device, epochs):
     for ep in range(1, epochs + 1):
         tot = 0; n = 0
         for s in samples:
-            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device))
-            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device))
-            C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device))
-            D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device))
+            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device)).detach()
+            C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
+            D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
             ans_ids = _ids(s["answer"])
             opt.zero_grad()
             D = composer(A, B, C)
             mse = F.mse_loss(D, D_target)
             logits = dec(D.unsqueeze(1))            # [1,1,vocab]
             ce = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
-                                 ans_ids[:1].to(device))
+                                 ans_ids[:1].to(device)).detach()
             loss = mse + ce
             loss.backward(); opt.step()
             tot += loss.item(); n += 1
@@ -170,8 +170,8 @@ def run_qa(encoder, make_b, composer, dec_b, dec, dataset, tokenizer, device, ma
         t = s["task_type"]
         by_task.setdefault(t, [0, 0])
         prompt = build_prompt(s)
-        A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device))
-        C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device))
+        A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+        C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
         ids = compose_answer(encoder, make_b, composer, dec_b, dec, A, C,
                              max_tokens=max_new, eos_id=eos, pad_id=pad)
         gen = parse_answer(tokenizer.decode(ids)).strip().lower()
@@ -306,7 +306,7 @@ def train_cont(module, samples, encoder, device, epochs, name, field):
             ids = _ids(s[field])
             if ids.size(0) < 2:
                 continue
-            states = encoder.states(ids.unsqueeze(0).to(device))[0]  # [T, d]
+            states = encoder.states(ids.unsqueeze(0).to(device)).detach()[0]  # [T, d]
             src = states[:-1]; tgt = states[1:]
             opt = torch.optim.AdamW(module.parameters(), lr=3e-4)
             opt.zero_grad()
