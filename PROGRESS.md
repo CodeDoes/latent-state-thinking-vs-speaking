@@ -245,6 +245,12 @@ python run_experiment.py --exp_id exp005 --model latent_ssm_decoder --latent_ste
 
 **Next**: Run experiments on Kaggle GPU to get real results. The notebook is ready with 5 experiments comparing baseline, SSM variants with different thinking frequencies, and the decoder model. With the selective SSM enhancement, the latent models should be more competitive with the baseline.
 
+**Visualization**: The notebook now automatically generates:
+- `loss_curves.png` - Training/validation loss curves for all experiments
+- `final_comparison.png` - Bar chart comparing final validation losses
+- `qa_accuracy.png` - QA evaluation accuracy by experiment
+- Comprehensive summary report with improvement calculations
+
 ### 2026-07-11 — CPU Comparative Experiment
 
 **Experiment:** Compared BaselineTransformer vs LatentSSM (selective) on CPU
