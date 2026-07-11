@@ -26,8 +26,9 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 # Files to embed (real source of truth). Order matters for package imports.
+# Note: no src/__init__.py needed (namespace package on sys.path); we create an
+# empty one in the SETUP cell for safety. Empty %%writefile cells error out.
 EMBED = [
-    ("src/__init__.py", ""),
     ("src/dataset.py", (HERE / "src/dataset.py").read_text()),
     ("src/tokenizer.py", (HERE / "src/tokenizer.py").read_text()),
     ("src/models.py", (HERE / "src/models.py").read_text()),
@@ -91,6 +92,7 @@ SETUP = [
     "# Recreate the reusable src/ package and bench.py from the embedded cells.\n",
     "import os\n",
     "os.makedirs('src', exist_ok=True)\n",
+    "open('src/__init__.py', 'w').close()  # optional, enables `import src...`\n",
     "print('workspace files ready:', sorted(os.listdir('.')))\n",
 ]
 
