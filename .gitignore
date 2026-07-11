@@ -8,3 +8,26 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual env
+venv/
+.env/
+
+# Checkpoints & experiment outputs
+experiments/
+*.pt
+*.ckpt
+*.pth
+results.json
+
+# Kaggle
+kaggle_output/

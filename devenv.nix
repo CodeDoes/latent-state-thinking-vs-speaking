@@ -8,7 +8,18 @@
   packages = [ pkgs.git pkgs.kaggle ];
 
   # https://devenv.sh/languages/
-  # languages.rust.enable = true;
+  languages.python.enable = true;
+  languages.python.venv.enable = true;
+  languages.python.venv.requirements = p: [
+    p.torch
+    p.torchvision
+    p.numpy
+    p.transformers
+    p.kagglehub
+    p.tqdm
+    p.json5
+    p.matplotlib
+  ];
 
   # https://devenv.sh/processes/
   # processes.dev.exec = "${lib.getExe pkgs.watchexec} -n -- ls -la";

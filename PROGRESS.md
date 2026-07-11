@@ -77,15 +77,21 @@ Prefix Tape Memory          SSM State
 | Project setup | ✅ Devenv/Nix environment configured |
 | Research design | ✅ Architecture + ladder defined |
 | Agent specification | ✅ Autonomous research loop defined |
-| Kaggle planning | ✅ Checkpointing + session constraints noted |
-| Conversation history | ✅ Documented in CONVO.md (~2000 lines) |
-| SSM implementation | ⬜ Not started |
+| Kaggle integration | ✅ API auth (kitastro), notebook, push script |
+| Toy world generator | ✅ `src/dataset.py` — location/inventory/recall/story tasks |
+| Tokenizer | ✅ `src/tokenizer.py` — character-level with special tokens |
+| Models | ✅ `src/models.py` — BaselineTransformer, LatentSSM, LatentSSMDecoder |
+| SSM layer | ✅ `src/models.py` — simplified Mamba-style recurrent update |
+| Latent thinking loop | ✅ `src/models.py` — think() method with gated residual |
+| Token decoder | ✅ `src/models.py` — cheap FFN readout + multi-token decode |
+| Trainer | ✅ `src/trainer.py` — training loop, checkpointing, QA eval |
+| Experiment runner | ✅ `run_experiment.py` — CLI for running experiments |
+| Kaggle notebook | ✅ `notebook.ipynb` — GPU-ready notebook with all 5 experiments |
+| Kaggle push | ✅ `kaggle_push.py` — push/monitor/download via Kaggle API |
 | Prefix tape memory | ⬜ Not started |
 | Managed context | ⬜ Not started |
-| Latent thinking loop | ⬜ Not started |
-| Token decoder | ⬜ Not started |
-| Training tasks | ⬜ Not started |
-| Experiments | ⬜ Not started |
+| Phase 1 experiments | ⬜ Ready to run |
+| Level 0 proven | ⬜ |
 
 ---
 
@@ -126,7 +132,13 @@ Standard next-token prediction encourages shortcutting. Need:
 
 ## Next Steps
 
-See PLAN.md for detailed phased plan. Immediate next step: **Phase 1 — Baseline** (implement tiny transformer LM + recurrent latent model + toy world generator).
+**Ready:** Phase 1 baseline experiments (Level 0 — "Does latent state work at all?")
+
+1. `python run_experiment.py --exp_id exp001 --model baseline` — verify training works
+2. `python run_experiment.py --exp_id exp002 --model latent_ssm --latent_steps 1` — SSM baseline
+3. `python run_experiment.py --exp_id exp003 --model latent_ssm --latent_steps 4` — 4 thinking steps
+4. Push to Kaggle GPU: `python kaggle_push.py --run`
+5. Download and compare results
 
 **First night win condition:** A 20M parameter latent-state model with 4 recurrent thinking steps achieves X% better long-horizon recall than a same-size autoregressive model.
 
