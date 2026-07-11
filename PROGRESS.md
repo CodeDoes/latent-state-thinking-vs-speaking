@@ -270,3 +270,53 @@ python run_experiment.py --exp_id exp005 --model latent_ssm_decoder --latent_ste
 - Hypothesis supported: latent thinking with selective dynamics outperforms standard attention
 - Kaggle GPU experiments should show even larger improvements with more training
 - Selective SSM architecture is ready for production-scale experiments With the selective SSM enhancement, the latent models should be more competitive with the baseline.
+
+### 2026-07-11 — Kaggle GPU Execution (Version 11)
+
+**Current Status**: Notebook is running on Kaggle with GPU
+
+**P100 Compatibility Fix**:
+- Problem: Kaggle uses P100 GPUs (compute capability 6.0) which aren't supported by PyTorch 2.10+cu128
+- Previous approach: Import torch, check capability, install compatible version, reload (caused library registration errors)
+- New approach: Check CUDA capability using nvidia-smi BEFORE importing torch, install compatible version if needed
+- This avoids the `importlib.reload(torch)` error that caused notebook crashes
+
+**Notebook Structure** (11 cells):
+1. Imports with P100 compatibility handling
+2. Dataset generation (toy world tasks)
+3. Tokenizer
+4. BaselineTransformer model
+5. SSMLayer + LatentSSM (with selective dynamics)
+6. LatentSSMDecoder (with selective dynamics)
+7. Training loop (5 experiments)
+8. Evaluation with temperature sampling
+9. Visualization (loss curves, comparisons)
+10. Download summary (lists all output files)
+11. Final results table
+
+**Experiments Running**:
+- exp001: Transformer baseline (d_model=256, 30 epochs)
+- exp002: SSM no thinking (d_model=256, 30 epochs)
+- exp003: SSM + thinking every 4 tokens (d_model=256, 30 epochs)
+- exp004: SSM + thinking every 8 tokens (d_model=256, 30 epochs)
+- exp005: SSM + decoder (d_model=256, 30 epochs)
+
+**Expected Runtime**: 3-5 hours on T4/P100 GPU
+
+**Monitoring**: Automatic download script running (PID: $(pgrep -f wait_and_download.sh))
+- Script: wait_and_download.sh
+- Log: kaggle_monitor.log
+- Output directory: kaggle_output/
+
+**Expected Outputs**:
+- models: experiments/expXXX/best_model.pt (5 models)
+- metrics: results.json, qa_results.json, samples.json
+- visualizations: loss_curves.png, final_comparison.png, qa_accuracy.png
+- Total size: ~100-200 MB
+
+**Next Steps**:
+1. Wait for notebook completion (~3-5 hours)
+2. Download results from kaggle_output/
+3. Analyze results with analyze_results.py
+4. Compare val loss across experiments
+5. Check if hypothesis is confirmed (latent thinking improves reasoning)
