@@ -144,39 +144,41 @@ class LatentModel(nn.Module):
         if isinstance(q_ids, torch.Tensor):
             q_ids = q_ids.tolist()
         der = self.der_emb(der_id)
-        qv = self.qvec(torch.tensor(q_ids))
-        h = torch.zeros(1, 1, self.gru.hidden_size)
+        dev = self.emb.weight.device
+        qv = self.qvec(torch.tensor(q_ids, device=dev))
+        h = torch.zeros(1, 1, self.gru.hidden_size, device=dev)
         toks = [self.bos] + tgt_ids
         logits, comps = [], []
         for i in range(len(tgt_ids)):
-            x = torch.cat([self.emb(torch.tensor(toks[i])), s, der, qv]
+            x = torch.cat([self.emb(torch.tensor(toks[i], device=dev)), s, der, qv]
                           ).unsqueeze(0).unsqueeze(0)
             out, h = self.gru(x, h)
             logits.append(self.out(out[0, 0]))
             comps.append(torch.sigmoid(self.comp(out[0, 0])))
         logits = torch.stack(logits)
         comps = torch.stack(comps).squeeze(1)
-        ce = F.cross_entropy(logits, torch.tensor(tgt_ids))
-        tgt_comp = torch.zeros(len(tgt_ids))
+        ce = F.cross_entropy(logits, torch.tensor(tgt_ids, device=dev))
+        tgt_comp = torch.zeros(len(tgt_ids), device=dev)
         tgt_comp[-1] = 1.0
         bce = F.binary_cross_entropy(comps, tgt_comp)
         return ce + bce
 
     def ffn_gen(self, s, der_id, q_ids, max_len=12, tau=0.5):
         der = self.der_emb(der_id)
-        qv = self.qvec(torch.tensor(q_ids))
-        h = torch.zeros(1, 1, self.gru.hidden_size)
+        dev = self.emb.weight.device
+        qv = self.qvec(torch.tensor(q_ids, device=dev))
+        h = torch.zeros(1, 1, self.gru.hidden_size, device=dev)
         toks = [self.bos]
         out_ids = []
         for _ in range(max_len):
-            x = torch.cat([self.emb(torch.tensor(toks[-1])), s, der, qv]
+            x = torch.cat([self.emb(torch.tensor(toks[-1], device=dev)), s, der, qv]
                           ).unsqueeze(0).unsqueeze(0)
             out, h = self.gru(x, h)
             nid = int(self.out(out[0, 0]).argmax())
             out_ids.append(nid)
             if torch.sigmoid(self.comp(out[0, 0])).item() > tau or nid == self.eos:
                 break
-            toks.append(torch.tensor(nid))
+            toks.append(torch.tensor(nid, device=dev))
         return out_ids
 
 
@@ -202,19 +204,20 @@ class BaselineAR(nn.Module):
             q_ids = q_ids.tolist()
         if isinstance(ctx_ids, torch.Tensor):
             ctx_ids = ctx_ids.tolist()
-        c = self.emb(torch.tensor(ctx_ids + q_ids)).mean(0)
+        dev = self.emb.weight.device
+        c = self.emb(torch.tensor(ctx_ids + q_ids, device=dev)).mean(0)
         h = self.ctx_enc(c).unsqueeze(0).unsqueeze(0)
         toks = [bos] + tgt_ids
         logits, comps = [], []
         for i in range(len(tgt_ids)):
-            x = self.emb(torch.tensor(toks[i])).unsqueeze(0).unsqueeze(0)
+            x = self.emb(torch.tensor(toks[i], device=dev)).unsqueeze(0).unsqueeze(0)
             out, h = self.gru(x, h)
             logits.append(self.out(out[0, 0]))
             comps.append(torch.sigmoid(self.comp(out[0, 0])))
         logits = torch.stack(logits)
         comps = torch.stack(comps).squeeze(1)
-        ce = F.cross_entropy(logits, torch.tensor(tgt_ids))
-        tgt_comp = torch.zeros(len(tgt_ids))
+        ce = F.cross_entropy(logits, torch.tensor(tgt_ids, device=dev))
+        tgt_comp = torch.zeros(len(tgt_ids), device=dev)
         tgt_comp[-1] = 1.0
         bce = F.binary_cross_entropy(comps, tgt_comp)
         return ce + bce
@@ -224,16 +227,17 @@ class BaselineAR(nn.Module):
             ctx_ids = ctx_ids.tolist()
         if isinstance(q_ids, torch.Tensor):
             q_ids = q_ids.tolist()
-        c = self.emb(torch.tensor(ctx_ids + q_ids)).mean(0)
+        dev = self.emb.weight.device
+        c = self.emb(torch.tensor(ctx_ids + q_ids, device=dev)).mean(0)
         h = self.ctx_enc(c).unsqueeze(0).unsqueeze(0)
         toks = [bos]
         out_ids = []
         for _ in range(max_len):
-            x = self.emb(torch.tensor(toks[-1])).unsqueeze(0).unsqueeze(0)
+            x = self.emb(torch.tensor(toks[-1], device=dev)).unsqueeze(0).unsqueeze(0)
             out, h = self.gru(x, h)
             nid = int(self.out(out[0, 0]).argmax())
             out_ids.append(nid)
             if torch.sigmoid(self.comp(out[0, 0])).item() > tau or nid == self.eos:
                 break
-            toks.append(torch.tensor(nid))
+            toks.append(torch.tensor(nid, device=dev))
         return out_ids
