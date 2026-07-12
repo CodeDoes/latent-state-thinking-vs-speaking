@@ -23,7 +23,7 @@ can outperform an equivalent token-by-token model on long-horizon reasoning.
 
 | Level | Question | Status |
 |---|---|---|
-| 0 | Does latent state work at all? | ⬜ |
+| 0 | Does latent state work at all? | ⬜ (paused while we fix the broken answer head) |
 | 1 | Does latent thinking beat tokens? | ⬜ |
 | 2 | Does latent state survive context removal? | ⬜ |
 | 3 | Can latent state generate multiple tokens? | ⬜ |
@@ -379,3 +379,69 @@ finally answer Level 0 ('Does latent state work at all?'). Expect the answer
 fractions to be low — next-token prediction on templated data likely shortcuts
 reasoning — which would motivate the auxiliary losses in AGENTS.md (latent
 consistency / reconstruction / evolution).
+
+### 2026-07-12 — Visibility fixes + AnswerDecoder redesign
+
+**Two problems the user raised:**
+
+1. “Training is invisible — I don't understand it.” The trainer only printed
+   one loss number per epoch and ran for an hour locally before dying. Nothing
+   was visible until the end.
+2. “How can accuracy be exactly 0? Luck isn't that bad.” At first glance
+   puzzling — but a 9% majority-class baseline means a *random* model would hit
+   ~9%; what we saw was greedy decoding over a model that learned English-
+   shaped text but never the answer slot, producing deterministic gibberish
+   ('. . . . .', 'MZCSNM'). 0/1000 is worse than random but is exactly what
+   greedy-over-broken gives.
+
+**Changes:**
+
+- `src/trainer.py`: `STAGE:` DATA / TOKEN / INIT / TRAIN / EVAL / GEN prints per
+  epoch. Mid-epoch `[TRAIN]` lines with BOTH `loss_full` (every char) and
+  `loss_answer` (only the 'Answer:' continuation) so the user sees which signal
+  is actually moving. New `_answer_positions` masks only the answer slot for
+  focused loss (`--answer_loss_weight`, default 1.0 = double). Mid-epoch
+  `[GEN ]` and cheap `[MID-QA]` snapshots so training is legible.
+- `bench.py`: passes through `--print_every_batches`, `--gen_sample_every`,
+  `--answer_loss_weight`; nothing else was changed.
+- `AGENTS.md`: rule 6 explicitly forbids `python bench.py` without `--quick`
+  locally. Only the local invocation is for catching import errors + confirming
+  STAGE: prints. Anything resembling a real experiment goes to Kaggle.
+
+**Kaggle run done by previous session (modular pipeline, NOT my bench.py):**
+Looking at the last Kaggle logs:
+
+```
+STAGE: oracle {"autoenc_recon_char_acc": 0.9863,
+               "oracle_answer_head_acc": 0.00,
+               "composer_D_mse": 0.2733}
+STAGE: make_B {"make_B_mse": 0.2862, "target_var": 0.3434, "verdict": "weak"}
+STAGE: done qa_acc=0.000
+```
+
+The autoencoder was perfect (98.6% char acc on reconstruction), so the I/O was
+fine. **But the answer head (LSTM-based) could not decode the TRUE teacher
+state — oracle acc=0.00.** That means: even when handed the actual answer
+state, the generation head output nothing related to the answer. The
+diagnostic called this out (“MATH: answer head cannot decode…”) and we ignored
+it.
+
+**Root cause of the broken head:** `AnswerDecoder` used an LSTM seeded from
+`proj(D)` and rolled via a zero-valued `start_emb` parameter. Generation-time
+input to the LSTM was *always zero*, so the only signal was the initial hidden
+state h0 = proj(D), which had to be learned from scratch in a single forward
+pass. It converged to a constant token.
+
+**Fix:** rewrote `AnswerDecoder` as a non-recurrent per-position MLP
+(`logit_t = MLP([D; pos_embed_t]) + state_proj(D)`), with a residual that
+always has the right output shape. Teacher-forcing during training, greedy
+argmax during generation. MAX_TOKENS=24 fits all answers (longest inventory
+answers are ~28 chars; max answer: paswords=8; everything else fits in 24 for
+now). No more LSTM, no more zero-input roll-up.
+
+**What to expect next:** with a working head, the **oracle test** should jump
+from 0 toward >0.5 on a fresh Kaggle run. If it does, the bottleneck moves to
+`composer` (D_mse: 0.27 now). If the oracle stays low, the new MLP's
+`state_proj` anchor isn't pulling enough weight and we need to crank the
+residual. Either way the next iteration has a *concrete, measurable* target
+(not a single 0.000 to argue about).

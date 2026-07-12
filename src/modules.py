@@ -124,50 +124,89 @@ class AnswerDecoder(nn.Module):
     """Autoregressive head: starting from a composed state D, emit the ANSWER
     token sequence (NOT "Answer: ..." -- just the answer string).
 
-    This replaces the old `compose_answer` hack (which decoded a single pooled
-    state and advanced it with `dec_b`), which could never generate a multi-
-    token answer because the autoencoder was trained for reconstruction, not
-    generation. Here D seeds an LSTM's initial hidden state and the head is
-    trained with teacher forcing on the answer tokens."""
+    Why not an LSTM seeded from D?  We tried that and the previous Kaggle run
+    finished with `oracle_answer_head_acc=0.00` -- meaning even when fed the
+    TRUE teacher state, the LSTM could not decode it back to the answer, never
+    mind at compositing time. The cause was that generation-time uses a
+    zero-valued `start_emb` to roll the LSTM, so the only signal the LSTM sees
+    is the initial hidden state h0 = proj(D); this requires the linear->LSTM
+    alignment to be learned FROM SCRATCH through a single forward pass, which
+    converged to a constant output.
 
-    def __init__(self, d_state: int, vocab_size: int, hidden: int = 256, n_layers: int = 1):
+    Instead, this is a NON-recurrent per-position MLP decoder:
+      logit_t = MLP([D; pos_embed_t])                  (shape: [B, T, vocab])
+    where the MLP is the same per position (weight sharing). It conditions at
+    every step on the state D, so even at generation time the prediction has
+    rich signal. Teacher-forcing at training time and greedy argmax at
+    generation time. Maximum answer length is fixed by MAX_TOKENS to bound the
+    parameters; padding past the true end is masked out by the cross-entropy
+    (ignore_index=pad).
+    """
+
+    MAX_TOKENS = 24
+
+    def __init__(self, d_state: int, vocab_size: int, hidden: int = 512, max_tokens: int = MAX_TOKENS):
         super().__init__()
         self.d_state = d_state
         self.vocab_size = vocab_size
-        self.embed = nn.Embedding(vocab_size, hidden)
-        self.lstm = nn.LSTM(hidden, d_state, num_layers=n_layers, batch_first=True)
-        self.proj_h = nn.Linear(d_state, d_state)
-        self.out = nn.Linear(d_state, vocab_size)
-        self.start_emb = nn.Parameter(torch.zeros(hidden))
+        self.max_tokens = max_tokens
+        # Learnable positional embeddings -> MLP -> logits.
+        self.pos_embed = nn.Parameter(torch.randn(max_tokens, d_state) * 0.02)
+        self.net = nn.Sequential(
+            nn.Linear(d_state + d_state, hidden), nn.SiLU(), nn.LayerNorm(hidden),
+            nn.Linear(hidden, hidden), nn.SiLU(),
+            nn.Linear(hidden, vocab_size),
+        )
+        # Independent projection of D so the decoder isn't forced to read the
+        # entire state through one path -- a residual that always has the right
+        # output shape, so even at the START of training the state -> vocab
+        # linear at least produces a vocab-shaped output (not garbage from
+        # breaking activations). This is what the old LSTM head violently
+        # lacked -- an anchor path from state -> logit.
+        self.state_proj = nn.Linear(d_state, vocab_size)
 
     def forward_teacher(self, D: torch.Tensor, tgt_ids: torch.Tensor) -> torch.Tensor:
-        """Teacher-forced logits [B, T, vocab] for the answer tokens."""
-        h0 = self.proj_h(D).unsqueeze(0).contiguous()
-        c0 = torch.zeros_like(h0).contiguous()
-        emb = self.embed(tgt_ids)
-        out, _ = self.lstm(emb, (h0, c0))
-        return self.out(out)
+        """Teacher-forced forward -- produces logits for ALL T target positions.
+
+        Args:
+            D: [B, d_state] - the composed state to decode.
+            tgt_ids: [B, T] - answer token ids (padded/truncated to T<=max_tokens).
+
+        Returns:
+            logits: [B, T, vocab] aligned to tgt_ids, for cross-entropy.
+        """
+        B, T = tgt_ids.shape
+        T = min(T, self.max_tokens)
+        D_e = D.unsqueeze(1).expand(-1, T, -1)            # [B, T, d]
+        pos = self.pos_embed[:T].unsqueeze(0).expand(B, -1, -1)
+        h = torch.cat([D_e, pos], dim=-1)                # [B, T, 2d]
+        return self.net(h) + self.state_proj(D_e)        # additive residual anchor
 
     @torch.no_grad()
-    def generate(self, D: torch.Tensor, max_tokens: int = 24,
+    def generate(self, D: torch.Tensor, max_tokens: int = None,
                  eos_id=None, pad_id=None):
-        """Greedy generation: returns a list of token ids (the answer)."""
+        """Greedy generation: returns a list of token ids (the answer).
+
+        Stops early if eos_id is emitted; otherwise emits MAX_TOKENS tokens.
+        Does NOT train anything internally -- `generate` is @torch.no_grad.
+        """
         B = D.size(0)
-        h0 = self.proj_h(D).unsqueeze(0).contiguous()
-        c0 = torch.zeros_like(h0).contiguous()
-        inp = self.start_emb.unsqueeze(0).unsqueeze(0).expand(B, 1, -1).contiguous()
-        ids = []
-        h, c = h0, c0
-        for _ in range(max_tokens):
-            out, (h, c) = self.lstm(inp, (h, c))
-            logit = self.out(out[:, -1, :])            # [B, vocab]
-            tok = int(torch.argmax(logit, dim=-1).item())
-            if eos_id is not None and tok == eos_id:
-                break
-            if pad_id is not None and tok == pad_id:
-                break
-            ids.append(tok)
-            inp = self.embed(torch.tensor([tok], device=D.device)).unsqueeze(0)
+        T = min(max_tokens or self.max_tokens, self.max_tokens)
+        D_e = D.unsqueeze(1).expand(B, T, -1)
+        pos = self.pos_embed[:T].unsqueeze(0).expand(B, -1, -1)
+        h = torch.cat([D_e, pos], dim=-1)
+        out = self.net(h) + self.state_proj(D_e)         # [B, T, vocab]
+        argmax = out.argmax(-1)
+        if B == 1:
+            ids = argmax[0].tolist()
+        else:
+            # The current pipeline only calls this with B==1 (per sample).
+            # If a future caller passes B>1, return the first row.
+            ids = argmax[0].tolist()
+        if eos_id is not None or pad_id is not None:
+            ids = [t for t in ids
+                   if (eos_id is None or t != eos_id)
+                   and (pad_id is None or t != pad_id)]
         return ids
 
 
