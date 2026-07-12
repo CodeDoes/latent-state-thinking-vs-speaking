@@ -58,6 +58,10 @@ def pre_flight():
         assert logits.shape == (2, 12, tok.vocab_size), logits.shape
         ids = dec.generate(D[:1], eos_id=tok.vocab[tok.eos_token])
         assert isinstance(ids, list) and all(isinstance(i, int) for i in ids), ids
+        # Import the Kaggle training script itself so import-time errors (e.g. a
+        # missing top-level `import`) are caught locally instead of only on
+        # Kaggle. main() is only invoked under __main__, so this is safe.
+        import train_modules  # noqa: F401
         print("SELFCHECK_OK (local)")
         return True
     except Exception as e:
