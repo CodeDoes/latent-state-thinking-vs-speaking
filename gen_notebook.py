@@ -100,7 +100,7 @@ RUN = [
     "# words'), then the latent ops. Output streams here so kaggle_run.py can\n",
     "# watch STAGE: lines live. Outputs (modules_report.json) land in CWD.\n",
     "import sys, os\n",
-    "cmd = (f\"{sys.executable} train_converged.py --device cpu \"\n",
+    "cmd = (f\"{sys.executable} -u train_converged.py --device cpu \"\n",
     "       f\"--n_samples 5000 --d_state 0 --epochs 20 --max_facts 4\")\n",
     "print('STAGE: launch', cmd)\n",
     "os.system(cmd)\n",

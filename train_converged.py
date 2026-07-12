@@ -21,6 +21,7 @@ from src.latent import (build_vocab, Tok, gen_world, compute_Lstar,
 
 
 def main():
+    print("=== train_converged main() entered (imports done) ===", flush=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--d_state", type=int, default=0)  # 0 => use L*
