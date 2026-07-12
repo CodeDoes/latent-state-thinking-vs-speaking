@@ -23,7 +23,7 @@ can outperform an equivalent token-by-token model on long-horizon reasoning.
 
 | Level | Question | Status |
 |---|---|---|
-| 0 | Does latent state work at all? | ⬜ (paused while we fix the broken answer head) |
+| 0 | Does latent state work at all? | ⬜ (legacy cyclic curriculum qa_acc=0.0 — see 2026-07-12 log; pivoted to converged SSM+FFN design) |
 | 1 | Does latent thinking beat tokens? | ⬜ |
 | 2 | Does latent state survive context removal? | ⬜ |
 | 3 | Can latent state generate multiple tokens? | ⬜ |
@@ -92,8 +92,8 @@ Prefix Tape Memory          SSM State
 | CPU validation | ✅ All 3 models train successfully on CPU |
 | Prefix tape memory | ⬜ Not started |
 | Managed context | ⬜ Not started |
-| Phase 1 experiments | 🚀 Running on Kaggle GPU (v19) via bench.py |
-| Level 0 proven | ⬜ |
+| Phase 1 experiments | ⚠️ Legacy cyclic curriculum (train_modules.py v35) FAILED qa_acc=0.0 on Kaggle GPU; converged SSM+FFN design staged & committed, ready to push |
+| Level 0 proven | ⬜ (legacy attempt failed; converged design not yet run) |
 
 ---
 
@@ -633,3 +633,21 @@ baseline. `B` is detached so no composer gradient leaks into make_B. The
 `qa_hook` now reflects the real inference path during training.
 
 
+
+### 2026-07-12 — Legacy cyclic curriculum (train_modules.py v35) — FAILS (qa_acc=0.0)
+
+**Design:** Cyclic curriculum training latent-algebra pieces separately (toA/toB/makeA/contA/contB/answerWithFormatD), optimizing the internal representation (not the answer string); AnswerDecoder is a readout probe. v35 fixed the train/inference mismatch in the composer (now trains on `make_b(A_seq, C)` instead of the true answer state).
+
+**Run:** Kaggle GPU, 5000 samples, `d_state=256`, ~97 min, early-stopped at plateau `max_delta<0.01` (cycle ~1617).
+
+**Result:** `qa_accuracy = 0.0` (location / inventory / recall / transfer all 0.0).
+- `composer_D_mse = 0.3575` — composer never reaches teacher state
+- `make_B_mse = 0.3512` — latent algebra "weak"
+- `oracle_answer_head_acc = 0.5443` — barely above chance (0.5); state barely encodes the answer
+- `majority_baseline_acc = 0.0642` — a trivial "always say living room" guess beats the model 6.4% to 0%
+
+**Diagnosis (matches the v34 signature):** source side learns (`toA=0.0000`) but the answer side never closes the train/inference gap. `make_B` stays weak → at inference B is wrong → composer D off → answer wrong. The "low loss, useless output" failure mode, confirmed.
+
+**Conclusion:** The legacy cyclic curriculum is a dead end. This is exactly why we built the converged SSM+FFN design (`src/latent.py` + `train_converged.py`): one shared SSM with a `derive` switch, a confidence-from-loss think-loop, and the cross-mode `FFN(L_src→Answer)` trained so inference works — plus an equal-capacity token-by-token baseline for the latent-vs-tokens test. Staged and committed; `notebook.ipynb` regenerated to run it.
+
+**Next:** Push the converged design to Kaggle (`kaggle_ctl.py run`) for the real measurement. Local `--quick` + 40-epoch CPU probe already shows latent (0.08) > baseline (0.04); not a measurement (no GPU locally).
