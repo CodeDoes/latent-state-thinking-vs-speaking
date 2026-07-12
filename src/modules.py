@@ -107,17 +107,28 @@ class StateTransform(nn.Module):
 
 
 class AnswerComposer(nn.Module):
-    """(A, B, C) -> D : compose narrative + answer + question states."""
+    """(A, B, C) -> D : compose narrative + answer + question states.
 
-    def __init__(self, d_state: int, hidden: int = 512):
+    D_target (the teacher) depends ONLY on the answer (it is
+    encoder.state_of("Answer: " + answer)), so B = encoder.state_of(answer) is
+    already the answer and must flow into D. We keep a residual from B so the
+    answer information can never be lost in the MLP, and widen the net. The
+    composer's only job is then to learn the small "Answer: " prefix
+    transformation on top of B."""
+
+    def __init__(self, d_state: int, hidden: int = 1024):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(d_state * 3, hidden), nn.SiLU(), nn.LayerNorm(hidden),
+            nn.Linear(hidden, hidden), nn.SiLU(), nn.LayerNorm(hidden),
             nn.Linear(hidden, d_state),
         )
+        # Residual straight from B (the answer state) so D always contains the
+        # answer even before the MLP learns the prefix transform.
+        self.b_res = nn.Linear(d_state, d_state)
 
     def forward(self, A: torch.Tensor, B: torch.Tensor, C: torch.Tensor) -> torch.Tensor:
-        return self.net(torch.cat([A, B, C], dim=-1))
+        return self.net(torch.cat([A, B, C], dim=-1)) + self.b_res(B)
 
 
 class AnswerDecoder(nn.Module):

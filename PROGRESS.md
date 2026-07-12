@@ -510,4 +510,39 @@ produce a decodable state). The composer is still driven to `D_target` by the
 MSE term. Expect oracle to rise above 0.32 (clean anchor) and final QA to
 track it more closely (noisy-term robustness).
 
+### 2026-07-12 (push v31) — RESULT: oracle 0.32 → 0.40, but QA 0.043 → 0.030
+
+v31 ran (log timestamp 17:54). REAL numbers from the streamed log (the
+`download` step returns a STALE modules_report.json — Kaggle `kernels output`
+lags; treat the log as source of truth):
+- oracle_answer_head_acc **0.398** (up from 0.3248 — clean anchor helped)
+- composer_D_mse **0.3139** (slightly WORSE than v30's 0.2806)
+- final qa_acc **0.030** (DOWN from 0.043 — worse than majority baseline 0.064)
+- gen space fraction 0.0 (still no spaces!)
+
+**Interpretation:** training the head on clean D_target raised the diagnostic
+oracle but HURT the real pipeline — the head became precise on the exact
+target yet less robust to the composer's noisy D, and the noisy-term gradient
+destabilized the composer (mse rose). The real bottleneck is the composer, not
+the head. Also confirmed via a LOCAL probe (real cached encoder, clean D_target
+only): the head CAN emit spaces (frac 0.045) and reaches ~0.36 oracle — so the
+architecture is capacity-feasible; the Kaggle space≈0 is a *training-dynamics*
+artifact of feeding the head the noisy composer output.
+
+### 2026-07-12 (push v32, in-flight) — clean decouple + residual composer
+
+Two changes, fully decoupled head vs composer:
+1. `train_composer`: head trains on CLEAN D_target ONLY (detached); composer
+   trains on MSE ONLY. No head gradient into the composer — the two objectives
+   can't fight. The head's clean-D oracle becomes the ceiling; the composer's
+   MSE is the only thing limiting final QA.
+2. `AnswerComposer`: added a residual straight from B (the answer state) plus
+   a second hidden layer (wider), so the answer can never be lost and the
+   composer only has to learn the small "Answer: " prefix transform.
+3. Bumped `--phase1_epochs` 12 → 25 so the head has time to learn spaces.
+
+Hypothesis: with the composer forced to reach D_target (residual should drop
+mse well below 0.28) and the head decoding clean D_target (spaces learned),
+the final QA should finally exceed the 0.064 majority baseline.
+
 

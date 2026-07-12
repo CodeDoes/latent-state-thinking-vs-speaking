@@ -186,24 +186,22 @@ def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs
             opt.zero_grad()
             D = composer(A, B, C)
             mse = F.mse_loss(D, D_target)
-            # Train the head on BOTH the clean teacher state and the noisy
-            # composer output:
-            #  - clean term anchors precise decoding (incl. spaces) from the
-            #    TRUE answer state -- this is why the autoencoder decoder hits
-            #    0.98, and why the head previously collapsed to single-word
-            #    patterns (it only saw a moving, noisy D from a random composer).
-            #  - noisy term adapts the head to the actual inference
-            #    distribution (composer(A,B,C)), and its gradient also flows into
-            #    the composer, helping it produce a decodable state.
-            # D_target is detached so the clean CE never leaks into the composer;
-            # the composer is driven by MSE to *reach* D_target.
-            logits_clean = ans_dec.forward_teacher(D_target, tgt_ids.unsqueeze(0))
-            logits_noisy = ans_dec.forward_teacher(D, tgt_ids.unsqueeze(0))
-            ce_clean = F.cross_entropy(logits_clean.reshape(-1, logits_clean.size(-1)),
-                                      tgt_ids.reshape(-1))
-            ce_noisy = F.cross_entropy(logits_noisy.reshape(-1, logits_noisy.size(-1)),
-                                      tgt_ids.reshape(-1))
-            ce = ce_clean + ce_noisy
+            # DECOUPLE head from composer (the fix for the space collapse):
+            #  - The head trains ONLY on the CLEAN teacher state D_target
+            #    (detached), so it learns to decode the answer precisely,
+            #    INCLUDING spaces. Training it on the noisy composer output
+            #    (v30) buried the space signal (space fraction ~0.001) because
+            #    the composer starts random and the head could only read noise.
+            #  - The composer trains ONLY via the MSE term to *reach* D_target.
+            #    No head gradient flows into the composer, so the two objectives
+            #    don't fight. The head's clean-D oracle becomes the ceiling and
+            #    the composer's MSE becomes the only thing limiting final QA.
+            # A local probe with the real cached encoder confirms a head trained
+            # on clean D_target emits spaces (frac ~0.045) and reaches ~0.36
+            # oracle, so this is capacity-feasible -- the remaining gap is the
+            # composer's MSE, which the strengthened residual composer targets.
+            logits = ans_dec.forward_teacher(D_target, tgt_ids.unsqueeze(0))
+            ce = F.cross_entropy(logits.reshape(-1, logits.size(-1)), tgt_ids.reshape(-1))
             loss = mse + ce
             loss.backward(); opt.step()
             tot += loss.item(); n += 1
@@ -297,7 +295,7 @@ def main():
     ap.add_argument("--device", default="auto")
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--phase0_epochs", type=int, default=15)
-    ap.add_argument("--phase1_epochs", type=int, default=12)
+    ap.add_argument("--phase1_epochs", type=int, default=25)
     ap.add_argument("--n_samples", type=int, default=5000)
     ap.add_argument("--d_state", type=int, default=256)
     ap.add_argument("--d_model", type=int, default=128)
