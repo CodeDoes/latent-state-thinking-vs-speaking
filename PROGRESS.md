@@ -545,4 +545,29 @@ Hypothesis: with the composer forced to reach D_target (residual should drop
 mse well below 0.28) and the head decoding clean D_target (spaces learned),
 the final QA should finally exceed the 0.064 majority baseline.
 
+### 2026-07-12 (push v32) — RESULT: oracle 0.50 but QA 0.000 (brittle!)
+
+v32 ran (log 18:22). REAL numbers from the streamed log (download still lags):
+- oracle_answer_head_acc **0.4978** (crossed 0.5 — clean D_target training
+  taught the head to decode, spaces included)
+- composer_D_mse **0.2732** (fine, similar to v30)
+- **final qa_acc 0.000** (COLLAPSE) — the head was so precise on the EXACT
+  target that the composer's tiny (mse 0.27) noise at inference broke it
+  completely. Classic overfitting to the clean manifold.
+
+### 2026-07-12 (push v33, in-flight) — noise-injection robustness
+
+The tension is now fully characterized:
+- head clean-only (v32): oracle 0.50, QA 0.000 (brittle)
+- head noisy-only (v30): oracle 0.32, QA 0.043 (robust, no spaces)
+- head clean+noisy (v31): oracle 0.40, QA 0.030
+
+Fix: train the head on `D_target` + Gaussian noise at the composer's CURRENT
+error level (`noise_std = sqrt(mse(D, D_target))`), detached so no gradient
+leaks into the composer. The head sees a clean-ish signal (learns spaces) but
+is robust to exactly the noise it faces at inference. As the composer improves
+(mse drops) the injected noise shrinks, so it trains on progressively cleaner
+signal. Composer still driven by MSE only. Expect oracle to stay ~0.4-0.5 AND
+final QA to finally climb above 0.043 (and ideally past the 0.064 baseline).
+
 

@@ -186,21 +186,25 @@ def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs
             opt.zero_grad()
             D = composer(A, B, C)
             mse = F.mse_loss(D, D_target)
-            # DECOUPLE head from composer (the fix for the space collapse):
-            #  - The head trains ONLY on the CLEAN teacher state D_target
-            #    (detached), so it learns to decode the answer precisely,
-            #    INCLUDING spaces. Training it on the noisy composer output
-            #    (v30) buried the space signal (space fraction ~0.001) because
-            #    the composer starts random and the head could only read noise.
-            #  - The composer trains ONLY via the MSE term to *reach* D_target.
-            #    No head gradient flows into the composer, so the two objectives
-            #    don't fight. The head's clean-D oracle becomes the ceiling and
-            #    the composer's MSE becomes the only thing limiting final QA.
-            # A local probe with the real cached encoder confirms a head trained
-            # on clean D_target emits spaces (frac ~0.045) and reaches ~0.36
-            # oracle, so this is capacity-feasible -- the remaining gap is the
-            # composer's MSE, which the strengthened residual composer targets.
-            logits = ans_dec.forward_teacher(D_target, tgt_ids.unsqueeze(0))
+            # ROBUST-DECODE TRAINING (fixes v32's QA=0.000 brittleness):
+            # v32 trained the head ONLY on the clean teacher state D_target and
+            # hit oracle 0.50 but final QA 0.000 -- the head was so precise on
+            # the EXACT target that the composer's tiny (mse ~0.27) noise at
+            # inference broke it completely. v30 trained the head on the raw
+            # composer output but lost spaces (the composer starts random).
+            # Resolution: inject Gaussian noise into D_target at the composer's
+            # CURRENT error level (see D_train below), then train the head on
+            # that. The head sees a clean-ish signal (learns spaces/precise
+            # decoding) but is robust to exactly the noise it faces at inference.
+            # D_train is detached, so no head gradient leaks into the composer;
+            # the composer is still driven purely by the MSE term to reach
+            # D_target. As the composer improves (mse drops) the injected noise
+            # shrinks, so the head trains on progressively cleaner signal.
+            with torch.no_grad():
+                cur_mse = F.mse_loss(D, D_target).item()
+                noise_std = math.sqrt(cur_mse) + 1e-4
+                D_train = D_target + torch.randn_like(D_target) * noise_std
+            logits = ans_dec.forward_teacher(D_train, tgt_ids.unsqueeze(0))
             ce = F.cross_entropy(logits.reshape(-1, logits.size(-1)), tgt_ids.reshape(-1))
             loss = mse + ce
             loss.backward(); opt.step()
