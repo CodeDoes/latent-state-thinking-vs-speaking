@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Generate notebook.ipynb as a self-contained wrapper around train_modules.py.
+"""Generate notebook.ipynb as a self-contained wrapper around train_converged.py.
 
 Kaggle's `kaggle kernels push` uploads ONLY the notebook file (it does not
 upload the rest of the working directory). So we cannot rely on bench.py /
 src/ being present on Kaggle. Instead, this generator embeds the real
-src/*.py and train_modules.py files as `%%writefile` cells, so the notebook
-*recreates* them on disk at runtime, then runs train_modules.py as a subprocess.
+src/*.py and train_converged.py files as `%%writefile` cells, so the notebook
+*recreates* them on disk at runtime, then runs train_converged.py as a
+subprocess.
 
-train_modules.py trains the SEPARABLE latent-state pieces, each with its OWN
-objective, in a curriculum:
-  Phase 0  token<->state autoencoder           ("output sane words")
-  Phase 1  latent algebra, each piece separate:
-           make_B(A)->B, make_A(B)->A, continue(A)->A2, continue(B)->B2,
-           Answer_in_format_D(A,B,C)->D
+train_converged.py trains BOTH the latent model (sequential SSM think +
+FFN speak) and an equal-capacity token-by-token baseline on the same
+long-horizon reasoning task, then reports val exact-match QA for each -- the
+actual "latent thinking vs tokens" test.
+
 The notebook process never imports torch (training is in the subprocess), so
-there is no P100 reload / 'triton' double-registration error.
+there is no P100 reload / 'triton' double-registration error. The COMPAT cell
+detects a P100 (sm_60) and pip-installs a cu118 torch BEFORE any torch
+import, so the subprocess can use CUDA on P100.
 """
 
 import json
@@ -59,12 +61,16 @@ COMPAT = [
     "from pathlib import Path\n",
     "\n",
     "# IMPORTANT: do NOT import torch here. Training runs in a SEPARATE\n",
-    "# subprocess (train_modules.py), so the notebook process only needs the\n",
+    "# subprocess (train_converged.py), so the notebook process only needs the\n",
     "# right torch installed in the environment. Importing torch in this process\n",
     "# and then reloading it after a P100 downgrade causes the\n",
     "# 'Only a single TORCH_LIBRARY can be used to register triton' error.\n",
-    "# Detect the GPU via nvidia-smi and, if it's a P100 (sm_60), install a\n",
-    "# compatible torch into the env; the train_modules.py subprocess loads it.\n",
+    "#\n",
+    "# Kaggle P100 GPUs are compute capability 6.0 -- modern default torch\n",
+    "# wheels (cu121/cu124) require sm_70+, so they crash on P100. We detect\n",
+    "# the capability and, if it's a P100, pip-install a cu118 torch (which\n",
+    "# supports sm_60) BEFORE any torch import. The train_converged.py\n",
+    "# subprocess then loads it. T4/newer GPUs keep the default torch.\n",
     "\n",
     "def gpu_capability():\n",
     "    try:\n",
@@ -79,13 +85,22 @@ COMPAT = [
     "\n",
     "cap = gpu_capability()\n",
     "print('GPU compute capability:', cap)\n",
-    "print('Running train_converged.py on CPU (--device cpu): using Kaggle-default torch on CPU; no CUDA, so no P100 torch-downgrade needed.')\n",
-
-    "print('train_modules.py will report the torch version it loads.')\n",
+    "if cap is not None and cap < 7.0:\n",
+    "    print('P100 / sm<70 detected: installing torch 2.3.1+cu118 (supports sm_60)...')\n",
+    "    try:\n",
+    "        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet',\n",
+    "            'torch==2.3.1', 'torchvision==0.18.1',\n",
+    "            '--index-url', 'https://download.pytorch.org/whl/cu118'])\n",
+    "        print('torch cu118 installed; train_converged.py subprocess will load it.')\n",
+    "    except Exception as e:\n",
+    "        print('torch downgrade failed:', repr(e), '-- fallback: cpu run')\n",
+    "else:\n",
+    "    print('Using Kaggle-default torch (sm>=70 or no GPU detected).')\n",
+    "print('train_converged.py will report the torch version it loads.')\n",
 ]
 
 SETUP = [
-    "# Recreate the reusable src/ package and train_modules.py from the embedded\n",
+    "# Recreate the reusable src/ package and train_converged.py from the embedded\n",
     "# cells.\n",
     "import os\n",
     "os.makedirs('src', exist_ok=True)\n",
@@ -94,14 +109,19 @@ SETUP = [
 ]
 
 RUN = [
-    "# Run the modular training (now on disk). Each piece (token<->state, and the\n",
-    "# latent algebra make_B/make_A/continue/Answer_in_format_D) is trained with\n",
-    "# its OWN objective, in a curriculum: first the autoencoder ('output sane\n",
-    "# words'), then the latent ops. Output streams here so kaggle_run.py can\n",
-    "# watch STAGE: lines live. Outputs (modules_report.json) land in CWD.\n",
+    "# Run the converged training (now on disk). It trains BOTH the latent\n",
+    "# model (sequential SSM think + FFN speak) and an equal-capacity\n",
+    "# token-by-token baseline on the same long-horizon reasoning task, then\n",
+    "# reports val exact-match QA for each. The latent model builds its state\n",
+    "# ONCE from the source (think once, speak many); the baseline re-encodes\n",
+    "# the source per question. This is the 'latent vs tokens' test. Output\n",
+    "# streams here so kaggle_ctl.py can watch STAGE: lines live. Outputs\n",
+    "# (modules_report.json) land in CWD. --device cuda; train_converged.py\n",
+    "# falls back to cpu automatically if no CUDA is available.\n",
     "import sys, os\n",
-    "cmd = (f\"{sys.executable} -u train_converged.py --device cpu \"\n",
-    "       f\"--n_samples 5000 --d_state 0 --epochs 20 --max_facts 4\")\n",
+    "cmd = (f\"{sys.executable} -u train_converged.py --device cuda \"\n",
+    "       f\"--n_samples 5000 --epochs 20 --K 2 \"\n",
+    "       f\"--d_emb 256 --d_hidden 512 --d_state 64 --max_events 14\")\n",
     "print('STAGE: launch', cmd)\n",
     "os.system(cmd)\n",
     "print('NOTEBOOK DONE')\n",
@@ -118,18 +138,18 @@ SUMMARY = [
 
 cells = [
     md([
-        "# Hybrid Latent-State Language Model - Modular Training\n",
+        "# Hybrid Latent-State Language Model - Converged Design\n",
         "\n",
-        "This notebook is a self-contained wrapper around `train_modules.py`, which\n",
-        "trains the latent-state pieces SEPARATELY, each with its own objective\n",
-        "(curriculum: autoencoder 'output sane words' first, then the latent\n",
-        "algebra). It recreates `src/` + `train_modules.py` from embedded cells, then\n",
-        "runs train_modules.py as a subprocess.\n",
+        "Self-contained wrapper around `train_converged.py`, which trains BOTH the\n",
+        "latent model (sequential SSM think + FFN speak) and an equal-capacity\n",
+        "token-by-token baseline on the same **long-horizon** reasoning task, then\n",
+        "reports val exact-match QA for each -- the 'latent thinking vs tokens'\n",
+        "test. The latent model builds its state ONCE from the source (think once,\n",
+        "speak many); the baseline re-encodes the full source for every question.\n",
         "\n",
-        "**Hypothesis:** decomposing into trainable input->output maps (make_B(A)->B,\n",
-        "continue(A)->A2, Answer_in_format_D(A,B,C)->D, plus token<->state) lets the\n",
-        "latent state actually *contain the correct thing* instead of just learning\n",
-        "to spell tokens.\n",
+        "**Hypothesis:** separating thinking (latent state updates) from speaking\n",
+        "(token generation) lets the model answer many queries from one compressed\n",
+        "state, beating an equal-size autoregressive model on long-horizon recall.\n",
     ]),
     code(COMPAT),
     code(SETUP),
@@ -144,7 +164,7 @@ cells.append(code(SUMMARY))
 nb = {
     "cells": cells,
     "metadata": {
-        "accelerator": "none",
+        "accelerator": "gpu",
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3.10"},
     },
@@ -155,4 +175,4 @@ nb = {
 with open("notebook.ipynb", "w") as f:
     json.dump(nb, f, indent=1)
 print(f"notebook.ipynb generated - {len(nb['cells'])} cells")
-print("Self-contained wrapper: embeds src/ + train_modules.py, runs train_modules.py")
+print("Self-contained wrapper: embeds src/ + train_converged.py, runs train_converged.py")

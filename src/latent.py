@@ -1,34 +1,56 @@
 """Converged hybrid latent-state model (SSM think + FFN speak).
 
-- One shared SSM with a `derive` switch (source | answer). Confidence is the
-  transformed training loss; it loops (soft-gated in training) until loss<eps.
-- A forward FFN (latent->tokens) with a complete head, derive-conditioned.
-- Cross-mode FFN(L_src, derive=ANS)->Answer is trained so inference works.
-- A token-by-token BaselineAR of similar size for the "latent vs tokens" test.
+Key design decisions (the ones that actually test the hypothesis):
 
-Synthetic random dataset: ~256 categorized vocab, multi-fact worlds rendered
-as A=prose / B=json / C=question / D=answer. d_state is set from L*.
+1. SEQUENTIAL THINKING. The SSM/recurrent cell processes the source
+   TOKEN-BY-TOKEN, updating a fixed-size latent state `s` at every step
+   (`s = think(s, x_t, derive)`). This is the whole point of a latent
+   state: it is a *running summary* of the input, not a mean-pooled bag of
+   tokens. The original mean-pooled version could not track order at all, so
+   it could never test long-horizon reasoning.
+
+2. THINK ONCE, SPEAK MANY. A world has one long source and several
+   questions. The latent model builds the state `L_src` ONCE from the source,
+   then answers every question cheaply from that single state. The token-by-
+   token baseline must re-encode the full source for every question. This is
+   the "thinking separated from speaking" win condition made measurable.
+
+3. LONG-HORIZON + INTEGRATION TASKS. Worlds are move-chains with
+   distractors; answers require integrating many remote events and can be
+   multi-token (set aggregation). Single-token recall is replaced by
+   reasoning over a long, interfering context.
+
+4. The `derive` switch (SRC | ANS) and confidence-from-loss thinking loop
+   are preserved; ANS mode is a training-only booster, discarded at inference.
+
+A forward FFN (latent -> tokens) with a complete head, derive-conditioned,
+is trained on the INFERENCE PATH `FFN(L_src, derive=ANS) -> Answer` in every
+batch, so inference never silently breaks.
 """
-import math, random
+import math
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-# ---------------- vocab / dataset ----------------
+# ----------------------------- vocab / dataset -----------------------------
 def build_vocab():
     cats = {
         "name": [f"N{i}" for i in range(80)],
-        "obj":  [f"O{i}" for i in range(80)],
+        "obj": [f"O{i}" for i in range(80)],
         "verb": [f"V{i}" for i in range(32)],
         "pron": [f"P{i}" for i in range(24)],
-        "loc":  [f"L{i}" for i in range(32)],
+        "loc": [f"L{i}" for i in range(32)],
         "punct": [".", ",", '"', "'", "?", ":"],
         "data": ["{", "}", "JSON"],
+        # relation / query / answer-role tokens
+        "rel": ["AT", "WHERE", "SAME", "NONE"],
     }
     syms = [s for v in cats.values() for s in v]
     special = ["<PAD>", "<BOS>", "<EOS>", "<DERIVE_SRC>", "<DERIVE_ANS>"]
-    vocab = special + syms  # ~260 tokens
+    vocab = special + syms  # ~266 tokens
     return vocab, cats
 
 
@@ -48,196 +70,214 @@ class Tok:
         return [self.stoi[t] for t in toks if t in self.stoi]
 
     def dec(self, ids):
-        return [self.itos[i] for i in ids]
+        return [self.itos[int(i)] for i in ids]
 
 
-def gen_world(tok, rng, max_facts=4):
-    k = rng.randint(1, max_facts)
-    facts = []
-    for _ in range(k):
-        subj = rng.choice(tok.cats["name"])
-        verb = rng.choice(tok.cats["verb"])
-        obj = rng.choice(tok.cats["obj"] + tok.cats["loc"])
-        facts.append((subj, verb, obj))
-    source = [t for (s, v, o) in facts for t in (s, v, o, ".")]
-    data = [t for (s, v, o) in facts for t in ("JSON", s, v, o)]
-    qi = rng.randrange(k)
-    qs, qv, qo = facts[qi]
-    question = [qs, qv, "?"]
-    answer = [qo]
-    return {"source": source, "data": data, "question": question,
-            "answer": answer, "k": k}
+def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
+    """Generate one world: a long chain of item->location moves (with
+    distractor moves interleaved) plus several questions whose answers
+    require integrating many remote events.
+
+    Returns:
+        source  : list[str]  tokenized move log  ("O3 L5 . O3 L2 . ...")
+        queries : list[(question_tokens, answer_tokens)]
+        k       : number of (real) move events
+    """
+    locs = tok.cats["loc"]
+    items = rng.sample(tok.cats["obj"], rng.randint(*n_items_range))  # O# items
+    loc_of = {it: rng.choice(locs) for it in items}
+
+    events = []  # (item, loc) real moves
+    n_moves = rng.randint(max(4, max_events // 2), max_events)
+    for _ in range(n_moves):
+        it = rng.choice(items)
+        newloc = rng.choice(locs)
+        events.append((it, newloc))
+        loc_of[it] = newloc
+        # distractor: another item also moves (noise for the tracker)
+        if rng.random() < 0.5:
+            it2 = rng.choice([x for x in items if x != it])
+            l2 = rng.choice(locs)
+            events.append((it2, l2))
+            loc_of[it2] = l2
+
+    source = [t for (it, l) in events for t in (it, l, ".")]
+
+    queries = []
+    for _ in range(rng.randint(2, 4)):
+        qt = rng.choice(["WHERE", "AT", "SAME"])
+        if qt == "WHERE":
+            it = rng.choice(items)
+            q = ["WHERE", it, "?"]
+            a = [loc_of[it]]
+        elif qt == "AT":
+            lk = rng.choice(locs)
+            members = [it for it in items if loc_of[it] == lk]
+            q = ["AT", lk, "?"]
+            a = members if members else ["NONE"]
+        else:  # SAME
+            it = rng.choice(items)
+            lk = loc_of[it]
+            others = [x for x in items if x != it and loc_of[x] == lk]
+            q = ["SAME", it, "?"]
+            a = others if others else ["NONE"]
+        queries.append((q, a))
+
+    return {"source": source, "queries": queries, "k": len(events)}
 
 
-def compute_Lstar(cats, max_facts=4, bits_per_float=16):
-    """Theoretical best latent size (information-theoretic)."""
-    d_fact = (math.log2(len(cats["name"])) + math.log2(len(cats["verb"]))
-              + math.log2(len(cats["obj"]) + len(cats["loc"])))
-    bits = max_facts * d_fact + math.log2(2) + 4 + 4  # +switch+storyVariant+misc
+def compute_Lstar(cats, n_items=6, bits_per_float=16):
+    """Theoretical best latent size (information-theoretic floor)."""
+    d_item = (math.log2(len(cats["obj"])) + math.log2(len(cats["loc"])))
+    bits = n_items * d_item + math.log2(len(cats["rel"])) + 8
     floats = math.ceil(bits / bits_per_float)
     return int(floats), round(bits, 1)
 
 
-# ---------------- latent model: SSM think + FFN speak ----------------
+# ----------------- latent model: sequential think + speak -----------------
 class LatentModel(nn.Module):
-    def __init__(self, vocab, d_emb=32, d_ctx=48, d_state=16, d_der=8,
-                 d_hidden=64):
+    def __init__(self, vocab, d_emb=128, d_state=64, d_der=8, d_hidden=256):
         super().__init__()
         self.vocab = len(vocab)
-        self.d_emb = d_emb
         self.d_state = d_state
-        self.d_der = d_der
-        self.emb = nn.Embedding(self.vocab, d_emb, padding_idx=0)
-        self.ctx_enc = nn.Linear(d_emb, d_ctx)
-        self.tgt_enc = nn.Linear(d_emb, d_state)
-        self.q_enc = nn.Linear(d_emb, d_emb)
         self.der_emb = nn.Embedding(2, d_der)
-        self.ssm = nn.Sequential(nn.Linear(d_state + d_ctx + d_der, d_state),
-                                 nn.Tanh())
+        self.emb = nn.Embedding(self.vocab, d_emb, padding_idx=0)
         self.s0 = nn.Parameter(torch.zeros(d_state))
-        self.gru = nn.GRU(d_emb + d_state + d_der + d_emb, d_hidden,
-                          batch_first=True)
+        # recurrent think cell: (state, token_emb, derive) -> new_state
+        self.think = nn.Sequential(
+            nn.Linear(d_state + d_emb + d_der, 2 * d_state),
+            nn.Tanh(),
+            nn.Linear(2 * d_state, d_state),
+            nn.Tanh(),
+        )
+        self.qvec = nn.Linear(d_emb, d_emb)
+        # speak cell: (prev_token_emb, state, derive, qvec) -> hidden
+        self.speak = nn.GRU(d_emb + d_state + d_der + d_emb, d_hidden,
+                             batch_first=True)
         self.out = nn.Linear(d_hidden, self.vocab)
         self.comp = nn.Linear(d_hidden, 1)
 
-    def ctx(self, ids):
-        return self.ctx_enc(self.emb(ids).mean(0))
-
-    def target(self, ids):
-        return self.tgt_enc(self.emb(ids).mean(0))
-
-    def qvec(self, ids):
-        return self.q_enc(self.emb(ids).mean(0))
-
-    def ssm_loss(self, ctx, der_id, K, target, lam=0.1):
-        der = self.der_emb(der_id)
-        s = self.s0
-        states, confs = [], []
-        for _ in range(K):
-            s = self.ssm(torch.cat([s, ctx, der]))
-            states.append(s)
-            confs.append(1.0 / (1.0 + F.mse_loss(s, target)))
-        ws, prod = [], 1.0
-        for c, o in zip(confs, [torch.ones_like(c) - c for c in confs]):
-            ws.append(c * prod)
-            prod = prod * o
-        wsum = sum(ws) + prod
-        ws = [w / wsum for w in ws]
-        prod /= wsum
-        s_eff = sum(w * st for w, st in zip(ws, states)) + prod * states[-1]
-        loss = F.mse_loss(s_eff, target) + lam * sum(
-            w * F.mse_loss(st, target) for w, st in zip(ws, states))
-        return loss, s_eff
-
-    def ssm_hard(self, ctx, der_id, K, target, tau=0.5):
-        der = self.der_emb(der_id)
-        s = self.s0
-        for _ in range(K):
-            s = self.ssm(torch.cat([s, ctx, der]))
-            if (1.0 / (1.0 + F.mse_loss(s, target))).item() > tau:
-                break
+    # ---- thinking: fold the token sequence into a single latent state ----
+    def think_state(self, ids, der_id, K=1):
+        """Process `ids` token-by-token; return the final latent state [1, d_state].
+        K = number of recurrent think-steps applied per input token."""
+        der = self.der_emb(der_id).unsqueeze(0)  # [1, d_der]
+        s = self.s0.unsqueeze(0)                  # [1, d_state]
+        if ids.numel() == 0:
+            return s
+        x = self.emb(ids)                        # [T, d_emb]
+        for t in range(x.size(0)):
+            xt = x[t].unsqueeze(0)               # [1, d_emb]
+            for _ in range(K):
+                s = self.think(torch.cat([s, xt, der], dim=1))
         return s
 
-    def ffn_loss(self, s, der_id, q_ids, tgt_ids):
-        if isinstance(tgt_ids, torch.Tensor):
-            tgt_ids = tgt_ids.tolist()
-        if isinstance(q_ids, torch.Tensor):
-            q_ids = q_ids.tolist()
-        der = self.der_emb(der_id)
-        dev = self.emb.weight.device
-        qv = self.qvec(torch.tensor(q_ids, device=dev))
-        h = torch.zeros(1, 1, self.gru.hidden_size, device=dev)
-        toks = [self.bos] + tgt_ids
+    def ffn_loss(self, s, der_id, q_ids, tgt_ids, lam_comp=1.0):
+        """Train FFN(L, derive) -> target tokens (teacher-forced)."""
+        if isinstance(tgt_ids, (list, tuple)):
+            tgt_ids = torch.tensor(tgt_ids, device=s.device)
+        if isinstance(q_ids, (list, tuple)):
+            q_ids = torch.tensor(q_ids, device=s.device)
+        der = self.der_emb(der_id).unsqueeze(0).unsqueeze(0)  # [1,1,d_der]
+        s3 = s.unsqueeze(1)                                   # [1,1,d_state]
+        qv = self.qvec(self.emb(q_ids).mean(0)).unsqueeze(0).unsqueeze(0)  # [1,1,d_emb]
+        h = torch.zeros(1, 1, self.speak.hidden_size, device=s.device)
+        toks = [self.bos] + tgt_ids.tolist()
         logits, comps = [], []
         for i in range(len(tgt_ids)):
-            x = torch.cat([self.emb(torch.tensor(toks[i], device=dev)), s, der, qv]
-                          ).unsqueeze(0).unsqueeze(0)
-            out, h = self.gru(x, h)
+            xt = self.emb(torch.tensor(toks[i], device=s.device)).unsqueeze(0).unsqueeze(0)
+            out, h = self.speak(torch.cat([xt, s3, der, qv], dim=2), h)
             logits.append(self.out(out[0, 0]))
             comps.append(torch.sigmoid(self.comp(out[0, 0])))
         logits = torch.stack(logits)
         comps = torch.stack(comps).squeeze(1)
-        ce = F.cross_entropy(logits, torch.tensor(tgt_ids, device=dev))
-        tgt_comp = torch.zeros(len(tgt_ids), device=dev)
+        ce = F.cross_entropy(logits, tgt_ids)
+        tgt_comp = torch.zeros(len(tgt_ids), device=s.device)
         tgt_comp[-1] = 1.0
         bce = F.binary_cross_entropy(comps, tgt_comp)
-        return ce + bce
+        return ce + lam_comp * bce
 
-    def ffn_gen(self, s, der_id, q_ids, max_len=12, tau=0.5):
-        der = self.der_emb(der_id)
-        dev = self.emb.weight.device
-        qv = self.qvec(torch.tensor(q_ids, device=dev))
-        h = torch.zeros(1, 1, self.gru.hidden_size, device=dev)
+    def ffn_gen(self, s, der_id, q_ids, max_len=16, tau=0.5):
+        """Greedy generation from state `s`. Returns list[int] token ids."""
+        if isinstance(q_ids, (list, tuple)):
+            q_ids = torch.tensor(q_ids, device=s.device)
+        der = self.der_emb(der_id).unsqueeze(0).unsqueeze(0)
+        s3 = s.unsqueeze(1)
+        qv = self.qvec(self.emb(q_ids).mean(0)).unsqueeze(0).unsqueeze(0)
+        h = torch.zeros(1, 1, self.speak.hidden_size, device=s.device)
         toks = [self.bos]
         out_ids = []
         for _ in range(max_len):
-            x = torch.cat([self.emb(torch.tensor(toks[-1], device=dev)), s, der, qv]
-                          ).unsqueeze(0).unsqueeze(0)
-            out, h = self.gru(x, h)
+            xt = self.emb(torch.tensor(toks[-1], device=s.device)).unsqueeze(0).unsqueeze(0)
+            out, h = self.speak(torch.cat([xt, s3, der, qv], dim=2), h)
             nid = int(self.out(out[0, 0]).argmax())
             out_ids.append(nid)
             if torch.sigmoid(self.comp(out[0, 0])).item() > tau or nid == self.eos:
                 break
-            toks.append(torch.tensor(nid, device=dev))
+            toks.append(nid)
+        if out_ids and out_ids[-1] == self.eos:
+            out_ids = out_ids[:-1]
         return out_ids
 
 
-# ---------------- baseline: token-by-token AR (no latent) ----------------
+# ----------------- baseline: token-by-token AR (no latent) -----------------
 class BaselineAR(nn.Module):
-    """Standard autoregressive decoder: given (source+question) tokens, it
-    generates the answer token-by-token. No latent think-loop / compression.
+    """Standard autoregressive decoder over the raw token sequence. It must
+    re-encode the FULL source for every question (no reusable latent state).
     Comparable capacity to LatentModel for the 'latent vs tokens' test."""
 
-    def __init__(self, vocab, d_emb=32, d_hidden=64):
+    def __init__(self, vocab, d_emb=128, d_hidden=256):
         super().__init__()
         self.vocab = len(vocab)
         self.emb = nn.Embedding(self.vocab, d_emb, padding_idx=0)
-        self.ctx_enc = nn.Linear(d_emb, d_hidden)
         self.gru = nn.GRU(d_emb, d_hidden, batch_first=True)
         self.out = nn.Linear(d_hidden, self.vocab)
         self.comp = nn.Linear(d_hidden, 1)
 
-    def forward_loss(self, ctx_ids, q_ids, tgt_ids, bos):
-        if isinstance(tgt_ids, torch.Tensor):
-            tgt_ids = tgt_ids.tolist()
-        if isinstance(q_ids, torch.Tensor):
-            q_ids = q_ids.tolist()
-        if isinstance(ctx_ids, torch.Tensor):
-            ctx_ids = ctx_ids.tolist()
-        dev = self.emb.weight.device
-        c = self.emb(torch.tensor(ctx_ids + q_ids, device=dev)).mean(0)
-        h = self.ctx_enc(c).unsqueeze(0).unsqueeze(0)
-        toks = [bos] + tgt_ids
+    def _encode(self, ids):
+        x = self.emb(ids).unsqueeze(0)          # [1, T, d_emb]
+        _, h = self.gru(x)                       # h: [1, 1, d_hidden]
+        return h
+
+    def forward_loss(self, ctx_ids, q_ids, tgt_ids, bos, lam_comp=1.0):
+        if isinstance(ctx_ids, (list, tuple)):
+            ctx_ids = torch.tensor(ctx_ids, device=self.emb.weight.device)
+        if isinstance(q_ids, (list, tuple)):
+            q_ids = torch.tensor(q_ids, device=self.emb.weight.device)
+        if isinstance(tgt_ids, (list, tuple)):
+            tgt_ids = torch.tensor(tgt_ids, device=self.emb.weight.device)
+        h = self._encode(torch.cat([ctx_ids, q_ids]))
+        toks = [bos] + tgt_ids.tolist()
         logits, comps = [], []
         for i in range(len(tgt_ids)):
-            x = self.emb(torch.tensor(toks[i], device=dev)).unsqueeze(0).unsqueeze(0)
-            out, h = self.gru(x, h)
+            xt = self.emb(torch.tensor(toks[i], device=self.emb.weight.device)).unsqueeze(0).unsqueeze(0)
+            out, h = self.gru(xt, h)
             logits.append(self.out(out[0, 0]))
             comps.append(torch.sigmoid(self.comp(out[0, 0])))
         logits = torch.stack(logits)
         comps = torch.stack(comps).squeeze(1)
-        ce = F.cross_entropy(logits, torch.tensor(tgt_ids, device=dev))
-        tgt_comp = torch.zeros(len(tgt_ids), device=dev)
+        ce = F.cross_entropy(logits, tgt_ids)
+        tgt_comp = torch.zeros(len(tgt_ids), device=tgt_ids.device)
         tgt_comp[-1] = 1.0
         bce = F.binary_cross_entropy(comps, tgt_comp)
-        return ce + bce
+        return ce + lam_comp * bce
 
-    def generate(self, ctx_ids, q_ids, bos, max_len=12, tau=0.5):
-        if isinstance(ctx_ids, torch.Tensor):
-            ctx_ids = ctx_ids.tolist()
-        if isinstance(q_ids, torch.Tensor):
-            q_ids = q_ids.tolist()
-        dev = self.emb.weight.device
-        c = self.emb(torch.tensor(ctx_ids + q_ids, device=dev)).mean(0)
-        h = self.ctx_enc(c).unsqueeze(0).unsqueeze(0)
+    def generate(self, ctx_ids, q_ids, bos, max_len=16, tau=0.5):
+        if isinstance(ctx_ids, (list, tuple)):
+            ctx_ids = torch.tensor(ctx_ids, device=self.emb.weight.device)
+        if isinstance(q_ids, (list, tuple)):
+            q_ids = torch.tensor(q_ids, device=self.emb.weight.device)
+        h = self._encode(torch.cat([ctx_ids, q_ids]))
         toks = [bos]
         out_ids = []
         for _ in range(max_len):
-            x = self.emb(torch.tensor(toks[-1], device=dev)).unsqueeze(0).unsqueeze(0)
-            out, h = self.gru(x, h)
+            xt = self.emb(torch.tensor(toks[-1], device=self.emb.weight.device)).unsqueeze(0).unsqueeze(0)
+            out, h = self.gru(xt, h)
             nid = int(self.out(out[0, 0]).argmax())
             out_ids.append(nid)
             if torch.sigmoid(self.comp(out[0, 0])).item() > tau or nid == self.eos:
                 break
-            toks.append(torch.tensor(nid, device=dev))
+            toks.append(nid)
+        if out_ids and out_ids[-1] == self.eos:
+            out_ids = out_ids[:-1]
         return out_ids

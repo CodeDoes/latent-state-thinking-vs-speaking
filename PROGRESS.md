@@ -23,8 +23,8 @@ can outperform an equivalent token-by-token model on long-horizon reasoning.
 
 | Level | Question | Status |
 |---|---|---|
-| 0 | Does latent state work at all? | ⬜ (legacy cyclic curriculum qa_acc=0.0 — see 2026-07-12 log; pivoted to converged SSM+FFN design) |
-| 1 | Does latent thinking beat tokens? | ⬜ |
+| 0 | Does latent state work at all? | ⬜ (legacy cyclic curriculum qa_acc=0.0; converged design staged) |
+| 1 | Does latent thinking beat tokens? | 🔶 IN FLIGHT — redesigned converged exp on Kaggle GPU |
 | 2 | Does latent state survive context removal? | ⬜ |
 | 3 | Can latent state generate multiple tokens? | ⬜ |
 | 4 | Can latent state continue a story after interruption? | ⬜ |
@@ -92,8 +92,11 @@ Prefix Tape Memory          SSM State
 | CPU validation | ✅ All 3 models train successfully on CPU |
 | Prefix tape memory | ⬜ Not started |
 | Managed context | ⬜ Not started |
-| Phase 1 experiments | ⚠️ Legacy cyclic curriculum (train_modules.py v35) FAILED qa_acc=0.0 on Kaggle GPU; converged SSM+FFN design staged & committed, ready to push |
-| Level 0 proven | ⬜ (legacy attempt failed; converged design not yet run) |
+| P100 GPU (converged) | 🔶 IN FLIGHT — notebook now requests `accelerator: gpu` and installs torch 2.3.1+cu118 only if a P100 (sm<70) is detected, before any torch import (avoids the triton double-registration crash). Previous session had given up and run on CPU, which could not reach the scale/length the win condition needs. |
+| Long-horizon task | 🔶 redesigned — `src/latent.py gen_world` now builds long move-chains with distractor moves + multi-query worlds (WHERE / AT set-aggregation / SAME); answers can be multi-token and require integrating many remote events. |
+| Sequential thinking | ✅ FIXED — `LatentModel.think_state` now folds the source token-by-token into a fixed-size state (K recurrent think-steps per token). The previous mean-pool version could not track order, so it never tested the hypothesis. |
+| Level 0 proven | ⬜ |
+| Level 1 proven | ⬜ (run in flight) |
 
 ---
 
@@ -634,7 +637,48 @@ baseline. `B` is detached so no composer gradient leaks into make_B. The
 
 
 
-### 2026-07-12 — Legacy cyclic curriculum (train_modules.py v35) — FAILS (qa_acc=0.0)
+### 2026-07-13 — Redesign so the experiment actually tests the hypothesis
+
+**Problem with the previous converged run (kernel, 2026-07-13, CPU):**
+- It ran on **CPU** (P100 GPU had been disabled the previous session), so it
+  could not reach the scale/length the win condition needs.
+- Both `LatentModel` and `BaselineAR` **mean-pooled** the source
+  (`emb(ids).mean(0)`), so NEITHER could track token order. The SSM never
+  did any sequential thinking — it just applied a static function K times to a
+  bag of tokens. The hypothesis (latent thinking beats tokens on
+  *long-horizon* reasoning) was therefore untestable.
+- The task was **single-token** factual recall (`answer=[qo]`); the think-loop
+  bought nothing and the baseline naturally matched.
+- Result: `latent=0.382, baseline=0.410 -> "baseline wins"` — meaningless.
+
+**Redesign (this session):**
+1. `LatentModel.think_state` now folds the source **token-by-token** into a
+   fixed-size latent state (K recurrent think-steps per token) — real latent
+   thinking. The `derive` switch + confidence-from-loss loop are preserved.
+2. `BaselineAR` now processes the source **sequentially** (GRU over tokens) —
+   a fair token-by-token baseline.
+3. `gen_world` builds **long move-chains with distractor moves** and
+   **multi-query worlds**: `WHERE` (long-horizon tracking), `AT` (set
+   aggregation, multi-token), `SAME` (relational, multi-token). Answers
+   require integrating many remote events.
+4. `train_converged.py` trains on **multi-query worlds**: the latent model
+   builds its state **ONCE** from the source (think once, speak many); the
+   baseline re-encodes the full source for every question. This is the win
+   condition made measurable. Reports val exact-match per query for both.
+5. `gen_notebook.py`: requests `accelerator: gpu` and installs torch
+   2.3.1+cu118 only if a P100 (sm<70) is detected, **before** any torch
+   import (the notebook process never imports torch; training is a subprocess,
+   so the old triton double-registration crash cannot occur). `train_converged`
+   falls back to cpu if CUDA is unavailable.
+6. `kaggle_ctl.py pre_flight` now also self-checks the converged path
+   (tiny forward of both models).
+
+**Local validation (NOT a measurement — `--quick`, CPU, tiny):** imports OK,
+all shapes OK, training+validation+report run end-to-end; both models reach
+~0.5 exact-match within 3 epochs on the small task. Pushed to Kaggle for the
+real GPU measurement (`python kaggle_ctl.py run`).
+
+**Experiment record:** `experiments/exp_converged_lh_2026-07-13/config.json`.
 
 **Design:** Cyclic curriculum training latent-algebra pieces separately (toA/toB/makeA/contA/contB/answerWithFormatD), optimizing the internal representation (not the answer string); AnswerDecoder is a readout probe. v35 fixed the train/inference mismatch in the composer (now trains on `make_b(A_seq, C)` instead of the true answer state).
 

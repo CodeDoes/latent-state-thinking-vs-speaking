@@ -62,7 +62,31 @@ def pre_flight():
         # missing top-level `import`) are caught locally instead of only on
         # Kaggle. main() is only invoked under __main__, so this is safe.
         import train_modules  # noqa: F401
-        print("SELFCHECK_OK (local)")
+        # Converged-design path (the active experiment): tiny forward of both
+        # models catches shape/device bugs in src/latent.py + train_converged.py.
+        from src.latent import Tok, build_vocab, gen_world, LatentModel, BaselineAR
+        import train_converged  # noqa: F401
+        vocab, cats = build_vocab()
+        tok = Tok(vocab, cats)
+        w = gen_world(tok, __import__("random").Random(0))
+        lat = LatentModel(vocab, d_emb=16, d_state=8, d_hidden=16)
+        bas = BaselineAR(vocab, d_emb=16, d_hidden=16)
+        lat.bos = bas.bos = tok.bos
+        lat.eos = bas.eos = tok.eos
+        dev = "cpu"
+        s_t = torch.tensor(tok.enc(w["source"]), device=dev)
+        s_src = lat.think_state(s_t, torch.tensor(0, device=dev), K=2)
+        assert s_src.shape == (1, 8), s_src.shape
+        q, a = w["queries"][0]
+        ll = lat.ffn_loss(s_src, torch.tensor(1, device=dev), tok.enc(q), tok.enc(a))
+        assert ll.dim() == 0, ll.shape
+        gl = lat.ffn_gen(s_src, torch.tensor(1, device=dev), tok.enc(q), max_len=8)
+        assert isinstance(gl, list)
+        bl = bas.forward_loss(tok.enc(w["source"]), tok.enc(q), tok.enc(a), bas.bos)
+        assert bl.dim() == 0, bl.shape
+        bg = bas.generate(tok.enc(w["source"]), tok.enc(q), bas.bos, max_len=8)
+        assert isinstance(bg, list)
+        print("SELFCHECK_OK (local + converged path)")
         return True
     except Exception as e:
         print("SELFCHECK_FAIL (local):", repr(e))
