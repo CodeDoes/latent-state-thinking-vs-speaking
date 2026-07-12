@@ -605,4 +605,31 @@ away from by putting an answer-CE into the composer loss:
   and example dump work. (Tiny 48-dim quick run produces garbage output —
   expected; not a measurement.)
 
+### 2026-07-12 (push v34, cyclic) — RESULT: oracle 0.57 but QA 0.000 (train/inference gap)
+
+v34 ran the cyclic curriculum (local log 20:50, 821 STAGE lines). Results:
+- autoenc_recon_char_acc **0.9999** (perfect I/O)
+- oracle_answer_head_acc **0.5676** (ABOVE 0.5! the probe decodes the clean
+  teacher state 57% exactly — spaces still weak: space frac 0.005)
+- composer_D_mse **0.3735** (HIGH) — but during training `answerD` was 0.0015!
+- make_B_mse **0.3737** (weak); final qa_acc **0.000**
+- Interpretation: "I/O + head are fine (oracle high) but the composer does
+  not reach the teacher state (high MSE) -- the latent algebra not learning."
+
+**Root cause = train/inference mismatch in B.** `train_composer` fed
+`B = encoder.state_of(answer)` (the TRUE answer state) as the composer input,
+so the composer looked perfect (answerD 0.0015) when given the true answer.
+But at INFERENCE the pipeline uses `B = make_b(A_seq, C)` (derived from the
+narrative), which is ~0.37 from the true state (make_B is weak). The composer
+never trained on the path it actually runs, so the composed D was garbage at
+inference and QA collapsed. Classic teacher-forcing vs free-running gap.
+
+**Fix (pending Kaggle):** train the composer on the INFERENCE PATH —
+`B = make_b(A_seq, C).detach()` (plus `A_vec = A_seq[:,-1]` like
+`compose_answer`). Now the composer learns exactly the mapping it runs at test
+  time, so `composer_D_mse` at inference should drop to ~answerD (0.0015) and
+final QA should climb to ~oracle (0.57), well above the 0.064 majority
+baseline. `B` is detached so no composer gradient leaks into make_B. The
+`qa_hook` now reflects the real inference path during training.
+
 

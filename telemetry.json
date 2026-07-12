@@ -20,29 +20,29 @@
   },
   "history": {
     "phase0_loss": [
-      3.0550318241119383,
-      3.0292156457901003
+      3.05455060005188,
+      3.0284729480743406
     ],
     "phase1": {
       "make_B(A)->B": [
-        0.4300692199148994,
-        0.014332664850424382
+        0.6734302260953448,
+        0.029358040379441303
       ],
       "make_A(B)->A": [
-        0.11969419321774141,
-        0.010214379671421171
+        0.0822616325205435,
+        0.009367879591477305
       ],
       "continue(A)->A2": [
-        0.04392145866312194,
-        0.003679332468469722
+        0.04041998778415871,
+        0.0037181577240319357
       ],
       "continue(B)->B2": [
-        0.04273239315311978,
-        0.009078146643477721
+        0.0658564540233625,
+        0.00918090985952944
       ],
       "composer": [
-        0.06078871370603641,
-        0.020485888275763264
+        0.05405471279569294,
+        0.01962569928255634
       ]
     },
     "qa_acc": [
@@ -108,12 +108,12 @@
       "autoenc_recon_char_acc": 0.1814,
       "oracle_answer_head_acc": 0.0,
       "oracle_n": 69,
-      "composer_D_mse": 0.0191,
+      "composer_D_mse": 0.0127,
       "interpretation": "MATH: the answer head cannot decode even the TRUE teacher state (<0.5, got 0.00) -- the generation head / I-O mapping is wrong."
     },
     "make_B": {
-      "make_B_mse": 0.0115,
-      "target_var": 0.0111,
+      "make_B_mse": 0.0119,
+      "target_var": 0.0112,
       "collapsing": true,
       "verdict": "COLLAPSING to mean (MSE ~ variance floor: input state lacks info)"
     },

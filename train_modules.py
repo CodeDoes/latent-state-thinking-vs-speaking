@@ -169,17 +169,27 @@ def train_state_map(module, src_fn, tgt_fn, samples, encoder, opt, device, epoch
     return last
 
 
-def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs, hist, qa_hook=None):
-    composer.train(); ans_dec.train(); encoder.eval()
+def train_composer(composer, ans_dec, dec, make_b, samples, encoder, opt, device, epochs, hist, qa_hook=None):
+    composer.train(); ans_dec.train(); encoder.eval(); make_b.eval()
     for ep in range(1, epochs + 1):
         tot = 0; n = 0
         for s in samples:
-            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
-            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device)).detach()
+            A_seq = encoder.states(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+            A_vec = A_seq[:, -1, :]                                   # pooled narrative state
             C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
+            # INFERENCE-PATH B: at test time the answer state is produced by
+            # make_b(A_seq, C), NOT the true answer state. Training the composer
+            # on the true answer state (encoder.state_of(answer)) made it look
+            # perfect (answerD mse 0.0015) while the REAL pipeline fed
+            # make_b's output, which is ~0.37 from the true state -- so the
+            # composed D was garbage at inference and final QA collapsed to 0.
+            # Closing the train/inference gap: feed the exact path the pipeline
+            # runs. B is detached so the composer's gradient does not leak into
+            # make_b (make_b is trained separately in the toB phase).
+            B = make_b(A_seq, C).detach()
             D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
             opt.zero_grad()
-            D = composer(A, B, C)
+            D = composer(A_vec, B, C)
             # REPRESENTATION-ONLY objective: latent consistency. The composed
             # state D must equal the answer's OWN state (D_target). We do NOT
             # optimize for the answer string (that would be next-token
@@ -489,8 +499,9 @@ def main():
         # contB: continue answer state
         cont_b_loss = train_cont(cont_b, qa_samples, encoder, device,
                                  args.cycle_epochs, "continue(B)->B2", "answer", hist)
-        # answerWithFormatD: compose D (latent consistency only)
-        comp_loss = train_composer(composer, ans_dec, decoder, qa_samples, encoder,
+        # answerWithFormatD: compose D (latent consistency only, on the
+        # inference path B = make_b(A_seq, C))
+        comp_loss = train_composer(composer, ans_dec, decoder, make_b, qa_samples, encoder,
                                    comp_opt, device, args.cycle_epochs, hist, qa_hook=qa_hook)
         # probe: readout head trained on clean teacher state (validation only)
         probe_loss = train_answer_probe(ans_dec, composer, qa_samples, encoder,
