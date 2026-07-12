@@ -73,7 +73,7 @@ def dataset_diversity(dataset: list, tokenizer) -> dict:
 
 @torch.no_grad()
 def io_oracle_tests_with_decoder(encoder, decoder, composer, ans_dec, make_b,
-                                 dataset, tokenizer, device, max_new=24) -> dict:
+                                 dataset, tokenizer, device, max_new=48) -> dict:
     """Same as io_oracle_tests but with the actual StateDecoder available."""
     eos = tokenizer.vocab[tokenizer.eos_token]
     pad = tokenizer.vocab[tokenizer.pad_token]

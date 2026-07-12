@@ -177,11 +177,33 @@ def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs
             C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
             D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
             ans_ids = _ids(s["answer"]).to(device)
+            # Train the head to STOP: append EOS to the target. Without this the
+            # head never learns an end-of-answer signal, so greedy generation
+            # emits a full max_tokens garbage tail and exact-match oracle acc
+            # stays 0.00 (the real cause of the previous run's oracle failure).
+            eos_id = TOK.vocab[TOK.eos_token]
+            tgt_ids = torch.cat([ans_ids, torch.tensor([eos_id], device=device)])
             opt.zero_grad()
             D = composer(A, B, C)
             mse = F.mse_loss(D, D_target)
-            logits = ans_dec.forward_teacher(D, ans_ids.unsqueeze(0))
-            ce = F.cross_entropy(logits.reshape(-1, logits.size(-1)), ans_ids.reshape(-1))
+            # Train the head on BOTH the clean teacher state and the noisy
+            # composer output:
+            #  - clean term anchors precise decoding (incl. spaces) from the
+            #    TRUE answer state -- this is why the autoencoder decoder hits
+            #    0.98, and why the head previously collapsed to single-word
+            #    patterns (it only saw a moving, noisy D from a random composer).
+            #  - noisy term adapts the head to the actual inference
+            #    distribution (composer(A,B,C)), and its gradient also flows into
+            #    the composer, helping it produce a decodable state.
+            # D_target is detached so the clean CE never leaks into the composer;
+            # the composer is driven by MSE to *reach* D_target.
+            logits_clean = ans_dec.forward_teacher(D_target, tgt_ids.unsqueeze(0))
+            logits_noisy = ans_dec.forward_teacher(D, tgt_ids.unsqueeze(0))
+            ce_clean = F.cross_entropy(logits_clean.reshape(-1, logits_clean.size(-1)),
+                                      tgt_ids.reshape(-1))
+            ce_noisy = F.cross_entropy(logits_noisy.reshape(-1, logits_noisy.size(-1)),
+                                      tgt_ids.reshape(-1))
+            ce = ce_clean + ce_noisy
             loss = mse + ce
             loss.backward(); opt.step()
             tot += loss.item(); n += 1
@@ -226,7 +248,7 @@ def train_cont(module, samples, encoder, device, epochs, name, field, hist):
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
-def run_qa(encoder, make_b, composer, ans_dec, dataset, tokenizer, device, max_new=24):
+def run_qa(encoder, make_b, composer, ans_dec, dataset, tokenizer, device, max_new=48):
     correct = 0; total = 0
     by_task = {}
     generated_texts = []

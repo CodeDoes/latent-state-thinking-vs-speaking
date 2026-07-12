@@ -435,9 +435,10 @@ pass. It converged to a constant token.
 **Fix:** rewrote `AnswerDecoder` as a non-recurrent per-position MLP
 (`logit_t = MLP([D; pos_embed_t]) + state_proj(D)`), with a residual that
 always has the right output shape. Teacher-forcing during training, greedy
-argmax during generation. MAX_TOKENS=24 fits all answers (longest inventory
-answers are ~28 chars; max answer: paswords=8; everything else fits in 24 for
-now). No more LSTM, no more zero-input roll-up.
+argmax during generation. MAX_TOKENS=48 — the toy dataset's longest answer
+tokenizes to 45 tokens (my earlier “~28 chars fits in 24” estimate was wrong;
+the crash `batch_size (24) != (25)` came from a 25-token answer overflowing
+24). No more LSTM, no more zero-input roll-up.
 
 **What to expect next:** with a working head, the **oracle test** should jump
 from 0 toward >0.5 on a fresh Kaggle run. If it does, the bottleneck moves to
@@ -445,3 +446,68 @@ from 0 toward >0.5 on a fresh Kaggle run. If it does, the bottleneck moves to
 `state_proj` anchor isn't pulling enough weight and we need to crank the
 residual. Either way the next iteration has a *concrete, measurable* target
 (not a single 0.000 to argue about).
+
+### 2026-07-12 (later) — First Kaggle run with the MLP head: oracle STILL 0.00
+
+Pushed the MLP-head notebook (kernel v29). It ran to completion (no crash) but
+returned the SAME `oracle_answer_head_acc=0.00` — autoenc 98.5%, composer
+D_mse 0.287, head still can't decode the true teacher state. So the head
+*architecture* wasn't the whole story.
+
+**True root cause:** the head was never trained to STOP. `train_composer`
+computed CE only over the raw answer length and the target had **no EOS** token,
+while `generate()` emitted a full 24-token greedy tail and only stripped
+EOS/PAD at the very end. So the model never learned an end-of-answer signal;
+generation produced `answer` + garbage tail, and `gen != exp` → oracle 0.00 for
+*every* sample (even the short ones).
+
+**Fix (two parts):**
+
+1. `train_modules.py train_composer`: append `EOS` to the teacher target so the
+   head learns to emit EOS right after the answer. (`forward_teacher` already
+   truncates to `min(len, MAX_TOKENS)`, so the EOS-aligned CE is correct.)
+2. `src/modules.py AnswerDecoder.generate`: truncate at the FIRST EOS (early
+   stop) *before* stripping pad — previously it emitted all `max_tokens` and
+   only removed EOS/PAD at the end, so the tail survived.
+3. Bumped eval/oracle `max_new` 24 → 48 (longest answer is 45 tokens) in both
+   `train_modules.run_qa` and `src/diagnostics.io_oracle_tests_with_decoder`.
+
+**Local unit validation (NOT a real experiment — tiny CPU, random/learnable
+state):** a per-answer learnable state + the MLP head trained *with EOS* hits
+**30/30 exact-match** oracle-style generation, vs 0/30 with no EOS. Confirms
+EOS-stop is the fix, not capacity. Re-push pending.
+
+### 2026-07-12 (push v30) — MLP head + EOS: oracle 0.00 → 0.32
+
+Re-pushed the MLP head (with EOS-stop). Run completed (no crash). Results:
+- autoenc recon char-acc 0.983 (fine)
+- **oracle_answer_head_acc 0.3248** (up from 0.00 — EOS fixed the tail bug)
+- composer_D_mse 0.2806 (weak)
+- **final QA acc 0.043** (below the 0.064 majority baseline!)
+- gen_histogram: space fraction **0.001** — the head almost never emits spaces,
+  so every multi-word answer ("living room", "wallet and apple") fails.
+
+Crucially the qa-curve during composer training was volatile (0.063 → 0.000 →
+0.043) and oracle (0.32, clean state) ≫ final QA (0.043, composed state). So:
+(1) the head, even with the clean teacher state, only decodes 32% — and those
+are the single-word/password answers; multi-word ones lose their spaces;
+(2) the composer's D is far noisier than D_target, so the real pipeline
+bottleneck is the composer, not just the head.
+
+### 2026-07-12 (push v31, in-flight) — head trains on clean D_target + noisy D
+
+**Root cause of the space collapse:** `train_composer` trained the head ONLY
+on `composer(A,B,C)` — the *noisy* composer output from a randomly-initialized
+composer. The head had to read a moving target and collapsed to single-word
+patterns (dropping spaces). The autoencoder decoder succeeds precisely because
+it trains on clean encoder states.
+
+**Fix:** train the answer head on BOTH the clean teacher state `D_target`
+(anchors precise decoding incl. spaces; detached so it never leaks into the
+composer) AND the noisy composer output `D` (adapts the head to the real
+inference distribution; its gradient also flows into the composer, helping it
+produce a decodable state). The composer is still driven to `D_target` by the
+MSE term. Expect oracle to rise above 0.32 (clean anchor) and final QA to
+track it more closely (noisy-term robustness).
+
+

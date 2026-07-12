@@ -143,7 +143,7 @@ class AnswerDecoder(nn.Module):
     (ignore_index=pad).
     """
 
-    MAX_TOKENS = 24
+    MAX_TOKENS = 48  # longest answer in the toy dataset tokenizes to 45; 48 covers it
 
     def __init__(self, d_state: int, vocab_size: int, hidden: int = 512, max_tokens: int = MAX_TOKENS):
         super().__init__()
@@ -170,25 +170,33 @@ class AnswerDecoder(nn.Module):
 
         Args:
             D: [B, d_state] - the composed state to decode.
-            tgt_ids: [B, T] - answer token ids (padded/truncated to T<=max_tokens).
+            tgt_ids: [B, T_raw] - answer token ids (variable length per sample).
 
         Returns:
-            logits: [B, T, vocab] aligned to tgt_ids, for cross-entropy.
+            logits: [B, T, vocab] aligned to tgt_ids[:, :T], for cross-entropy,
+                    where T = min(T_raw, max_tokens). The target is truncated to
+                    T internally so the caller can pass raw (un-padded) answer
+                    ids directly without a length mismatch.
         """
-        B, T = tgt_ids.shape
-        T = min(T, self.max_tokens)
+        B, T_raw = tgt_ids.shape
+        T = min(T_raw, self.max_tokens)
+        tgt = tgt_ids[:, :T]                              # [B, T] aligned target
         D_e = D.unsqueeze(1).expand(-1, T, -1)            # [B, T, d]
         pos = self.pos_embed[:T].unsqueeze(0).expand(B, -1, -1)
         h = torch.cat([D_e, pos], dim=-1)                # [B, T, 2d]
-        return self.net(h) + self.state_proj(D_e)        # additive residual anchor
+        return self.net(h) + self.state_proj(D_e)        # [B, T, vocab]
 
     @torch.no_grad()
     def generate(self, D: torch.Tensor, max_tokens: int = None,
                  eos_id=None, pad_id=None):
         """Greedy generation: returns a list of token ids (the answer).
 
-        Stops early if eos_id is emitted; otherwise emits MAX_TOKENS tokens.
-        Does NOT train anything internally -- `generate` is @torch.no_grad.
+        Computes all T positions at once (non-recurrent) and then truncates at
+        the FIRST eos (early stop) before stripping any remaining pad/eos. This
+        is what makes training-with-EOS work: the model learns to emit EOS
+        right after the answer, and `generate` must honor that by cutting the
+        tail *before* the strip, not by emitting a full 24-token garbage tail
+        and only removing eos/pad at the very end.
         """
         B = D.size(0)
         T = min(max_tokens or self.max_tokens, self.max_tokens)
@@ -197,16 +205,14 @@ class AnswerDecoder(nn.Module):
         h = torch.cat([D_e, pos], dim=-1)
         out = self.net(h) + self.state_proj(D_e)         # [B, T, vocab]
         argmax = out.argmax(-1)
-        if B == 1:
-            ids = argmax[0].tolist()
-        else:
-            # The current pipeline only calls this with B==1 (per sample).
-            # If a future caller passes B>1, return the first row.
-            ids = argmax[0].tolist()
-        if eos_id is not None or pad_id is not None:
-            ids = [t for t in ids
-                   if (eos_id is None or t != eos_id)
-                   and (pad_id is None or t != pad_id)]
+        # The current pipeline only calls this with B==1 (per sample).
+        ids = argmax[0].tolist()
+        # Early stop at the first EOS (honor the trained stopping signal).
+        if eos_id is not None and eos_id in ids:
+            ids = ids[:ids.index(eos_id)]
+        # Strip any leading/trailing pad (eos already handled by truncation).
+        if pad_id is not None:
+            ids = [t for t in ids if t != pad_id]
         return ids
 
 

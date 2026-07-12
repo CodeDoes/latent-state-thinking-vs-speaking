@@ -40,13 +40,24 @@ def pre_flight():
     try:
         from src.dataset import generate_dataset, format_for_training, build_prompt
         from src.tokenizer import CharTokenizer
-        from src.modules import TokenEncoder, StateDecoder, StateTransform, AnswerComposer
+        from src.modules import (TokenEncoder, StateDecoder, StateTransform,
+                                 AnswerComposer, AnswerDecoder)
         import torch
         ds = generate_dataset(n_samples=10, seed=0)
         tok = CharTokenizer([format_for_training(s) for s in ds], max_vocab=256)
         enc = TokenEncoder(tok.vocab_size, d_state=32)
         s = enc.state_of(torch.zeros(1, 8, dtype=torch.long))
         assert s.dim() == 2, s.shape
+        # Exercise the redesigned AnswerDecoder (per-position MLP head):
+        # teacher-forcing forward must produce [B, T, vocab] logits, and greedy
+        # generation must return a token id list.
+        dec = AnswerDecoder(d_state=32, vocab_size=tok.vocab_size)
+        D = torch.randn(2, 32)
+        tgt = torch.randint(0, tok.vocab_size, (2, 12))
+        logits = dec.forward_teacher(D, tgt)
+        assert logits.shape == (2, 12, tok.vocab_size), logits.shape
+        ids = dec.generate(D[:1], eos_id=tok.vocab[tok.eos_token])
+        assert isinstance(ids, list) and all(isinstance(i, int) for i in ids), ids
         print("SELFCHECK_OK (local)")
         return True
     except Exception as e:

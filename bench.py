@@ -58,9 +58,13 @@ MODELS = {
     "latent_ssm_decoder":   dict(model="latent_ssm_decoder", ls=4, te=4, tps=8, dm=256),
 }
 
-QUICK = dict(d_model=48, n_samples=300, epochs=5, max_seq_len=384,
-             location_max_chars=300, inventory_max_chars=300,
-             transfer_max_chars=300, recall_max_chars=300, eval_every=2, batch_size=32)
+QUICK = dict(d_model=32, n_samples=64, epochs=1, max_seq_len=160,
+             location_max_chars=200, inventory_max_chars=200,
+             transfer_max_chars=200, recall_max_chars=200, eval_every=1, batch_size=16)
+
+# In --quick mode, force the oversized 'baseline_big' (dm=768 hardcoded in
+# MODELS) down to the small d_model so the sanity run actually finishes fast.
+QUICK_DM_OVERRIDE = True
 
 
 def build_model(spec: dict, vocab_size: int, d_model: int):
@@ -84,6 +88,8 @@ def build_model(spec: dict, vocab_size: int, d_model: int):
 def run_one(key: str, args, dataset, device) -> dict:
     spec = MODELS[key]
     dm = spec.get("dm", args.d_model)
+    if getattr(args, "quick", False) and QUICK_DM_OVERRIDE:
+        dm = args.d_model
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
