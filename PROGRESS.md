@@ -570,4 +570,39 @@ is robust to exactly the noise it faces at inference. As the composer improves
 signal. Composer still driven by MSE only. Expect oracle to stay ~0.4-0.5 AND
 final QA to finally climb above 0.043 (and ideally past the 0.064 baseline).
 
+### 2026-07-12 (course-correction) — train the REPRESENTATION, not the answer
+
+User clarified the architecture's actual training regime, which I had drifted
+away from by putting an answer-CE into the composer loss:
+
+1. **One shared model.** toA/toB/contA/contB/answerWithFormatD all refine the
+   SAME latent state space (the encoder's `d_state`); they are not separate
+   models. The autoencoder builds the space; the transforms/thinking refine it.
+2. **Optimize the internal representation, NOT the answer.** The objectives are
+   latent-consistency / reconstruction / state-evolution (JEPA-style). The
+   `AnswerDecoder` is a *readout probe* used only to validate, never a loss
+   term. My v30-v33 mistake was optimizing the head on the answer string.
+3. **Cyclic curriculum.** A CYCLE = (toA -> toB -> contA -> contB ->
+   answerWithFormatD). Repeat cycles; stop when ALL step-losses in a cycle
+   plateau (change < eps across consecutive cycles). This keeps conversion
+   (toB), continuation (contA/contB) and inference (answerWithFormatD) balanced.
+4. **Conclude from validation examples**, not just aggregate accuracy.
+
+**Implemented in train_modules.py (pending Kaggle run):**
+- `train_composer` is now REPRESENTATION-ONLY: `loss = mse(D, D_target)`
+  (latent consistency — composed state == answer's own state). No answer CE.
+- New `train_answer_probe`: trains the `AnswerDecoder` as a separate readout
+  head on clean `D_target` + composer-noise injection (so it's a *fair* readout
+  of the noisy composed state), decoupled from the core model (no answer
+  gradient reaches the composer/transforms/autoencoder).
+- New `dump_validation_examples`: prints expected | pipeline-gen | oracle-gen
+  for 5 samples per task so we can read real cases and conclude.
+- `main()` restructured into CYCLES with plateau-based early stopping
+  (`--max_cycles/--cycle_epochs/--plateau_eps/--plateau_patience`).
+- Strengthened `kaggle_ctl` pre-flight to `import train_modules` (caught a
+  missing `import math` that had slipped only to Kaggle).
+- Local `--quick` crash-check passes: cycles run, losses fall, plateau logic
+  and example dump work. (Tiny 48-dim quick run produces garbage output —
+  expected; not a measurement.)
+
 

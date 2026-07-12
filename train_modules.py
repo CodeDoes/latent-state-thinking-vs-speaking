@@ -53,7 +53,8 @@ from src.modules import (
 from src import diagnostics as diag
 
 QUICK = dict(d_state=48, n_samples=400, epochs=4, max_seq_len=192,
-             phase0_epochs=8, phase1_epochs=3, d_model=32, batch_size=32)
+             phase0_epochs=8, phase1_epochs=3, d_model=32, batch_size=32,
+             max_cycles=2, cycle_epochs=1, plateau_eps=0.05, plateau_patience=2)
 
 
 # ---------------------------------------------------------------------------
@@ -177,37 +178,16 @@ def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs
             B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device)).detach()
             C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
             D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
-            ans_ids = _ids(s["answer"]).to(device)
-            # Train the head to STOP: append EOS to the target. Without this the
-            # head never learns an end-of-answer signal, so greedy generation
-            # emits a full max_tokens garbage tail and exact-match oracle acc
-            # stays 0.00 (the real cause of the previous run's oracle failure).
-            eos_id = TOK.vocab[TOK.eos_token]
-            tgt_ids = torch.cat([ans_ids, torch.tensor([eos_id], device=device)])
             opt.zero_grad()
             D = composer(A, B, C)
-            mse = F.mse_loss(D, D_target)
-            # ROBUST-DECODE TRAINING (fixes v32's QA=0.000 brittleness):
-            # v32 trained the head ONLY on the clean teacher state D_target and
-            # hit oracle 0.50 but final QA 0.000 -- the head was so precise on
-            # the EXACT target that the composer's tiny (mse ~0.27) noise at
-            # inference broke it completely. v30 trained the head on the raw
-            # composer output but lost spaces (the composer starts random).
-            # Resolution: inject Gaussian noise into D_target at the composer's
-            # CURRENT error level (see D_train below), then train the head on
-            # that. The head sees a clean-ish signal (learns spaces/precise
-            # decoding) but is robust to exactly the noise it faces at inference.
-            # D_train is detached, so no head gradient leaks into the composer;
-            # the composer is still driven purely by the MSE term to reach
-            # D_target. As the composer improves (mse drops) the injected noise
-            # shrinks, so the head trains on progressively cleaner signal.
-            with torch.no_grad():
-                cur_mse = F.mse_loss(D, D_target).item()
-                noise_std = math.sqrt(cur_mse) + 1e-4
-                D_train = D_target + torch.randn_like(D_target) * noise_std
-            logits = ans_dec.forward_teacher(D_train, tgt_ids.unsqueeze(0))
-            ce = F.cross_entropy(logits.reshape(-1, logits.size(-1)), tgt_ids.reshape(-1))
-            loss = mse + ce
+            # REPRESENTATION-ONLY objective: latent consistency. The composed
+            # state D must equal the answer's OWN state (D_target). We do NOT
+            # optimize for the answer string (that would be next-token
+            # shortcutting -- the trap the whole project avoids). The
+            # AnswerDecoder is a SEPARATE readout PROBE (see train_answer_probe),
+            # never part of this loss. The core model is optimized purely for
+            # the internal representation; the answer is only *read out* later.
+            loss = F.mse_loss(D, D_target)
             loss.backward(); opt.step()
             tot += loss.item(); n += 1
         last = tot / max(n, 1)
@@ -217,6 +197,77 @@ def train_composer(composer, ans_dec, dec, samples, encoder, opt, device, epochs
         if qa_hook is not None and (ep % 3 == 0 or ep == epochs):
             qa_hook(ep)
     return last
+
+
+def train_answer_probe(ans_dec, composer, samples, encoder, opt, device, epochs):
+    """Readout PROBE (NOT a core loss). Train the AnswerDecoder to read the
+    answer from the teacher state D_target, with Gaussian noise injected at the
+    composer's CURRENT error level so the probe is robust to exactly the noise
+    it will face at inference (composer(A,B,C) ~ D_target + that noise).
+
+    This is deliberately decoupled from the core model: it never puts an answer
+    gradient into the composer / transforms / autoencoder. We optimize the
+    INTERNAL REPRESENTATION elsewhere; this head only learns to *read it out*.
+    """
+    ans_dec.train(); encoder.eval(); composer.eval()
+    eos = TOK.vocab[TOK.eos_token]
+    crit = nn.CrossEntropyLoss()
+    for ep in range(1, epochs + 1):
+        tot = 0; n = 0
+        for s in samples:
+            A = encoder.state_of(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+            B = encoder.state_of(_ids(s["answer"]).unsqueeze(0).to(device)).detach()
+            C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
+            D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
+            D = composer(A, B, C).detach()
+            with torch.no_grad():
+                cur_mse = F.mse_loss(D, D_target).item()
+                noise_std = math.sqrt(cur_mse) + 1e-4
+                D_train = D_target + torch.randn_like(D_target) * noise_std
+            ans_ids = _ids(s["answer"]).to(device)
+            tgt = torch.cat([ans_ids, torch.tensor([eos], device=device)])
+            opt.zero_grad()
+            logits = ans_dec.forward_teacher(D_train, tgt.unsqueeze(0))
+            loss = crit(logits.reshape(-1, logits.size(-1)), tgt.reshape(-1))
+            loss.backward(); opt.step()
+            tot += loss.item(); n += 1
+        last = tot / max(n, 1)
+        print(f"  [answer_probe] ep {ep}/{epochs} ce={last:.4f}")
+    return last
+
+
+def dump_validation_examples(encoder, make_b, composer, ans_dec, dataset,
+                             tokenizer, device, n_per_task=4, max_new=48):
+    """Print expected vs generated (pipeline) vs oracle (clean state) for a few
+    validation samples per task, so we can CONCLUDE why it worked/failed from
+    real examples rather than only aggregate accuracy."""
+    eos = tokenizer.vocab[tokenizer.eos_token]
+    pad = tokenizer.vocab[tokenizer.pad_token]
+    rows = []
+    seen = {}
+    for s in dataset:
+        if not s.get("question"):
+            continue
+        t = s["task_type"]
+        if seen.get(t, 0) >= n_per_task:
+            continue
+        seen[t] = seen.get(t, 0) + 1
+        A_seq = encoder.states(_ids(s["narrative"]).unsqueeze(0).to(device)).detach()
+        C = encoder.state_of(_ids(s.get("question", "")).unsqueeze(0).to(device)).detach()
+        ids = compose_answer(encoder, make_b, composer, ans_dec, A_seq, C,
+                              max_tokens=max_new, eos_id=eos, pad_id=pad)
+        gen = tokenizer.decode(ids).strip().lower()
+        exp = s["answer"].strip().lower()
+        D_target = encoder.state_of(_ids("Answer: " + s["answer"]).unsqueeze(0).to(device)).detach()
+        oids = ans_dec.generate(D_target, max_tokens=max_new, eos_id=eos, pad_id=pad)
+        ogen = tokenizer.decode(oids).strip().lower()
+        rows.append((t, s.get("question", ""), exp, gen, ogen))
+    print("\n=== VALIDATION EXAMPLES (expected | pipeline-gen | oracle-gen) ===")
+    for t, q, exp, gen, ogen in rows:
+        tag = "OK" if gen == exp else ("oracleOK" if ogen == exp else "X")
+        print(f"  [{t}] Q: {q}")
+        print(f"       exp={exp!r}  gen={gen!r}  oracle={ogen!r}  [{tag}]")
+    return rows
 
 
 # continue(): train on consecutive encoder states. NOTE: optimizer must be
@@ -301,6 +352,15 @@ def main():
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--phase0_epochs", type=int, default=15)
     ap.add_argument("--phase1_epochs", type=int, default=25)
+    # Cyclic curriculum: one CYCLE = (toA -> toB -> contA -> contB ->
+    # answerWithFormatD). Repeated until ALL step-losses in a cycle plateau.
+    ap.add_argument("--max_cycles", type=int, default=25)
+    ap.add_argument("--cycle_epochs", type=int, default=3,
+                    help="epochs per phase per cycle")
+    ap.add_argument("--plateau_eps", type=float, default=0.01,
+                    help="max per-step loss change across cycles to count as plateau")
+    ap.add_argument("--plateau_patience", type=int, default=3,
+                    help="consecutive plateaued cycles before early-stop")
     ap.add_argument("--n_samples", type=int, default=5000)
     ap.add_argument("--d_state", type=int, default=256)
     ap.add_argument("--d_model", type=int, default=128)
@@ -377,8 +437,14 @@ def main():
         rec = decoder(encoder.states(x)).argmax(-1)[0]
         print("  sample reconstruction:", TOK.decode(rec.tolist())[:80])
 
-    # ---- Phase 1: latent algebra, each piece separate ----
-    print("STAGE: phase1 latent algebra")
+    # ---- Phase 1: latent algebra, CYCLIC curriculum ----
+    # ONE CYCLE = (toA -> toB -> contA -> contB -> answerWithFormatD). The
+    # regiment keeps conversion (toB), continuation (contA/contB) and inference
+    # (answerWithFormatD) balanced and optimizes the INTERNAL REPRESENTATION --
+    # NOT the answer string. The AnswerDecoder is a readout PROBE (trained
+    # separately, never part of the core loss). Repeat cycles until ALL
+    # step-losses plateau (change < plateau_eps across consecutive cycles).
+    print("STAGE: phase1 cyclic latent algebra")
     qa_samples = [s for s in dataset[int(0.8 * len(dataset)):] if s.get("question")]
 
     # QA hook: evaluated periodically during composer training so we get a
@@ -394,19 +460,62 @@ def main():
         print(f"  STAGE: qa ep={ep} acc={acc:.3f} " +
               " ".join(f"{t}={a:.2f}" for t, a in task_acc.items()))
 
-    train_make_b_attn(make_b, qa_samples, encoder,
-                      torch.optim.AdamW(make_b.parameters(), lr=3e-4),
-                      device, args.phase1_epochs, hist)
-    train_state_map(make_a, lambda A, B, C: B, lambda A, B, C: A, qa_samples,
-                    encoder, torch.optim.AdamW(make_a.parameters(), lr=3e-4),
-                    device, args.phase1_epochs, "make_A(B)->A", hist)
-    train_cont(cont_a, qa_samples, encoder, device, args.phase1_epochs, "continue(A)->A2",
-               "narrative", hist)
-    train_cont(cont_b, qa_samples, encoder, device, args.phase1_epochs, "continue(B)->B2",
-               "answer", hist)
-    train_composer(composer, ans_dec, decoder, qa_samples, encoder,
-                   torch.optim.AdamW(list(composer.parameters()) + list(ans_dec.parameters()), lr=3e-4),
-                   device, args.phase1_epochs, hist, qa_hook=qa_hook)
+    # Persisted optimizers -- one shared model, refined every cycle.
+    ae_opt = torch.optim.AdamW(list(encoder.parameters()) + list(decoder.parameters()), lr=3e-4)
+    makeb_opt = torch.optim.AdamW(make_b.parameters(), lr=3e-4)
+    makea_opt = torch.optim.AdamW(make_a.parameters(), lr=3e-4)
+    cont_a_opt = torch.optim.AdamW(cont_a.parameters(), lr=3e-4)
+    cont_b_opt = torch.optim.AdamW(cont_b.parameters(), lr=3e-4)
+    comp_opt = torch.optim.AdamW(composer.parameters(), lr=3e-4)
+    probe_opt = torch.optim.AdamW(ans_dec.parameters(), lr=3e-4)
+
+    cycle_losses = []   # list of dicts: {step: loss}
+    patience = 0
+    for cyc in range(1, args.max_cycles + 1):
+        print(f"\n##### CYCLE {cyc}/{args.max_cycles} #####")
+        # toA: nudge the shared state space (no-op once foundation < threshold)
+        ae_loss = train_autoencoder(encoder, decoder, train_loader, ae_opt,
+                                    device, args.cycle_epochs, hist)
+        # toB: answer state from narrative + question (conversion)
+        makeb_loss = train_make_b_attn(make_b, qa_samples, encoder, makeb_opt,
+                                       device, args.cycle_epochs, hist)
+        # make_A(B)->A
+        makea_loss = train_state_map(make_a, lambda A, B, C: B, lambda A, B, C: A,
+                                     qa_samples, encoder, makea_opt, device,
+                                     args.cycle_epochs, "make_A(B)->A", hist)
+        # contA: continue narrative state
+        cont_a_loss = train_cont(cont_a, qa_samples, encoder, device,
+                                 args.cycle_epochs, "continue(A)->A2", "narrative", hist)
+        # contB: continue answer state
+        cont_b_loss = train_cont(cont_b, qa_samples, encoder, device,
+                                 args.cycle_epochs, "continue(B)->B2", "answer", hist)
+        # answerWithFormatD: compose D (latent consistency only)
+        comp_loss = train_composer(composer, ans_dec, decoder, qa_samples, encoder,
+                                   comp_opt, device, args.cycle_epochs, hist, qa_hook=qa_hook)
+        # probe: readout head trained on clean teacher state (validation only)
+        probe_loss = train_answer_probe(ans_dec, composer, qa_samples, encoder,
+                                        probe_opt, device, args.cycle_epochs)
+        cyc_loss = {"toA": ae_loss, "toB": makeb_loss, "makeA": makea_loss,
+                    "contA": cont_a_loss, "contB": cont_b_loss,
+                    "answerD": comp_loss, "probe": probe_loss}
+        cycle_losses.append(cyc_loss)
+        print("STAGE: cycle " + " ".join(f"{k}={v:.4f}" for k, v in cyc_loss.items()))
+        # Plateau: stop when ALL step-losses change < eps vs the previous cycle.
+        if len(cycle_losses) >= 2:
+            prev = cycle_losses[-2]
+            max_delta = max(abs(cyc_loss[k] - prev[k]) for k in cyc_loss)
+            if max_delta < args.plateau_eps:
+                patience += 1
+            else:
+                patience = 0
+            print(f"STAGE: plateau max_delta={max_delta:.4f} patience={patience}/{args.plateau_patience}")
+            if patience >= args.plateau_patience:
+                print(f"STAGE: early-stop: all cycle losses plateaued after {cyc} cycles")
+                break
+
+    # Validation examples (conclude from real samples, not just aggregates).
+    dump_validation_examples(encoder, make_b, composer, ans_dec, qa_samples,
+                             TOK, device, n_per_task=5)
 
     # ---- Final eval + isolation diagnostics ----
     print("STAGE: eval")

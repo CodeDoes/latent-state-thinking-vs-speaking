@@ -1,10 +1,14 @@
 {
   "config": {
     "quick": true,
-    "device": "cpu",
+    "device": "auto",
     "epochs": 4,
     "phase0_epochs": 8,
     "phase1_epochs": 3,
+    "max_cycles": 2,
+    "cycle_epochs": 1,
+    "plateau_eps": 0.05,
+    "plateau_patience": 2,
     "n_samples": 400,
     "d_state": 48,
     "d_model": 32,
@@ -15,52 +19,55 @@
     "analyze": false
   },
   "history": {
-    "phase0_loss": [],
+    "phase0_loss": [
+      3.0550318241119383,
+      3.0292156457901003
+    ],
     "phase1": {
       "make_B(A)->B": [
-        0.548111223899152,
-        0.010192481176657737,
-        0.008616278614457427
+        0.4300692199148994,
+        0.014332664850424382
       ],
       "make_A(B)->A": [
-        0.0867507406645387,
-        0.003946957755428942,
-        0.0032988561357816925
+        0.11969419321774141,
+        0.010214379671421171
       ],
       "continue(A)->A2": [
-        0.05817143680136381,
-        0.002017723058984763,
-        0.0014473850639752936
+        0.04392145866312194,
+        0.003679332468469722
       ],
       "continue(B)->B2": [
-        0.05341569794530886,
-        0.006276157016501478,
-        0.004364102392160482
+        0.04273239315311978,
+        0.009078146643477721
       ],
       "composer": [
-        4.070662785267484,
-        3.449352178020754,
-        2.8816602679266445
+        0.06078871370603641,
+        0.020485888275763264
       ]
     },
     "qa_acc": [
+      0.0,
       0.0,
       0.0
     ],
     "qa_task": {
       "location": [
         0.0,
+        0.0,
         0.0
       ],
       "recall": [
+        0.0,
         0.0,
         0.0
       ],
       "inventory": [
         0.0,
+        0.0,
         0.0
       ],
       "transfer": [
+        0.0,
         0.0,
         0.0
       ]
@@ -101,20 +108,18 @@
       "autoenc_recon_char_acc": 0.1814,
       "oracle_answer_head_acc": 0.0,
       "oracle_n": 69,
-      "composer_D_mse": 0.0173,
+      "composer_D_mse": 0.0191,
       "interpretation": "MATH: the answer head cannot decode even the TRUE teacher state (<0.5, got 0.00) -- the generation head / I-O mapping is wrong."
     },
     "make_B": {
-      "make_B_mse": 0.0083,
-      "target_var": 0.0079,
+      "make_B_mse": 0.0115,
+      "target_var": 0.0111,
       "collapsing": true,
       "verdict": "COLLAPSING to mean (MSE ~ variance floor: input state lacks info)"
     },
     "gen_histogram": {
-      "fractions": {
-        "alpha": 1.0
-      },
-      "verdict": "produces alphabetic text (plausible answers)"
+      "fractions": {},
+      "verdict": "mixed / unclear output"
     }
   }
 }
