@@ -120,6 +120,57 @@ class AnswerComposer(nn.Module):
         return self.net(torch.cat([A, B, C], dim=-1))
 
 
+class AnswerDecoder(nn.Module):
+    """Autoregressive head: starting from a composed state D, emit the ANSWER
+    token sequence (NOT "Answer: ..." -- just the answer string).
+
+    This replaces the old `compose_answer` hack (which decoded a single pooled
+    state and advanced it with `dec_b`), which could never generate a multi-
+    token answer because the autoencoder was trained for reconstruction, not
+    generation. Here D seeds an LSTM's initial hidden state and the head is
+    trained with teacher forcing on the answer tokens."""
+
+    def __init__(self, d_state: int, vocab_size: int, hidden: int = 256, n_layers: int = 1):
+        super().__init__()
+        self.d_state = d_state
+        self.vocab_size = vocab_size
+        self.embed = nn.Embedding(vocab_size, hidden)
+        self.lstm = nn.LSTM(hidden, d_state, num_layers=n_layers, batch_first=True)
+        self.proj_h = nn.Linear(d_state, d_state)
+        self.out = nn.Linear(d_state, vocab_size)
+        self.start_emb = nn.Parameter(torch.zeros(hidden))
+
+    def forward_teacher(self, D: torch.Tensor, tgt_ids: torch.Tensor) -> torch.Tensor:
+        """Teacher-forced logits [B, T, vocab] for the answer tokens."""
+        h0 = self.proj_h(D).unsqueeze(0).contiguous()
+        c0 = torch.zeros_like(h0).contiguous()
+        emb = self.embed(tgt_ids)
+        out, _ = self.lstm(emb, (h0, c0))
+        return self.out(out)
+
+    @torch.no_grad()
+    def generate(self, D: torch.Tensor, max_tokens: int = 24,
+                 eos_id=None, pad_id=None):
+        """Greedy generation: returns a list of token ids (the answer)."""
+        B = D.size(0)
+        h0 = self.proj_h(D).unsqueeze(0).contiguous()
+        c0 = torch.zeros_like(h0).contiguous()
+        inp = self.start_emb.unsqueeze(0).unsqueeze(0).expand(B, 1, -1).contiguous()
+        ids = []
+        h, c = h0, c0
+        for _ in range(max_tokens):
+            out, (h, c) = self.lstm(inp, (h, c))
+            logit = self.out(out[:, -1, :])            # [B, vocab]
+            tok = int(torch.argmax(logit, dim=-1).item())
+            if eos_id is not None and tok == eos_id:
+                break
+            if pad_id is not None and tok == pad_id:
+                break
+            ids.append(tok)
+            inp = self.embed(torch.tensor([tok], device=D.device)).unsqueeze(0)
+        return ids
+
+
 # ---------------------------------------------------------------------------
 # Support pieces (each separable + trainable on its own)
 # ---------------------------------------------------------------------------
@@ -195,26 +246,54 @@ class Tape(nn.Module):
 # Compositional inference (ties the pieces together at test time)
 # ---------------------------------------------------------------------------
 
+class StateCrossAttn(nn.Module):
+    """Extract the answer state B by attending over the narrative's per-token
+    states A_seq, conditioned on the question state C.
+
+    Replaces the old make_B(A_vec)->B single-vector MLP, which COLLAPSED to the
+    mean (MSE ~ variance of B) because a single pooled narrative vector is too
+    lossy to recover a specific fact from a long context. Attention over the
+    token-level states is the mechanism that actually lets the model 'read the
+    story and pull out the answer'.
+    """
+
+    def __init__(self, d_state: int, n_heads: int = 4):
+        super().__init__()
+        assert d_state % n_heads == 0
+        self.d_state = d_state
+        self.n_heads = n_heads
+        self.q = nn.Linear(d_state, d_state)
+        self.k = nn.Linear(d_state, d_state)
+        self.v = nn.Linear(d_state, d_state)
+        self.out = nn.Linear(d_state, d_state)
+        self.norm = nn.LayerNorm(d_state)
+
+    def forward(self, A_seq: torch.Tensor, C: torch.Tensor) -> torch.Tensor:
+        # A_seq: [B, T, d]  (per-token narrative states)
+        # C:     [B, d]     (question state, used as the attention query)
+        B_ = A_seq.size(0)
+        dk = self.d_state // self.n_heads
+        q = self.q(C).view(B_, self.n_heads, 1, dk)
+        k = self.k(A_seq).view(B_, self.n_heads, -1, dk)
+        v = self.v(A_seq).view(B_, self.n_heads, -1, dk)
+        scores = (q * k).sum(-1) / (dk ** 0.5)          # [B, H, T]
+        w = torch.softmax(scores, dim=-1)
+        ctx = (w.unsqueeze(-1) * v).sum(-2)              # [B, H, dk]
+        ctx = ctx.reshape(B_, self.d_state)
+        return self.norm(self.out(ctx))
+
+
 @torch.no_grad()
-def compose_answer(encoder, make_b, composer, dec_b, dec, A, C, max_tokens=24,
+def compose_answer(encoder, make_b, composer, ans_dec, A_seq, C, max_tokens=24,
                    eos_id=None, pad_id=None):
     """Run the latent algebra end-to-end to produce an answer string.
 
-    A = narrative state, C = question state.
-    B = make_B(A);  D = composer(A, B, C);  decode D token-by-token using the
-    answer-state advance dec_b (continue(B)) so multi-token answers work.
+    A_seq = narrative per-token states, C = question state.
+    B = make_B(A_seq, C)  (attention over the narrative);
+    D = composer(A_vec, B, C);  ans_dec generates the answer tokens from D.
     """
-    B = make_b(A)
-    D = composer(A, B, C)
-    state = D
-    ids = []
-    for _ in range(max_tokens):
-        logit = dec(state)                      # [1, vocab]
-        tok = int(torch.argmax(logit, dim=-1).item())
-        if eos_id is not None and tok == eos_id:
-            break
-        if pad_id is not None and tok == pad_id:
-            break
-        ids.append(tok)
-        state = dec_b(state)                    # advance answer state
+    A_vec = A_seq[:, -1, :]                        # [B, d] pooled narrative state
+    B = make_b(A_seq, C)
+    D = composer(A_vec, B, C)
+    ids = ans_dec.generate(D, max_tokens=max_tokens, eos_id=eos_id, pad_id=pad_id)
     return ids

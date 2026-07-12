@@ -53,8 +53,18 @@ class ExperimentConfig:
 
     # Loss weights
     token_loss_weight: float = 1.0
+    answer_loss_weight: float = 0.0   # 0 = standard next-token loss over all chars
+                                       # >0 = up-weight loss on the answer-slot tokens
+                                       #      so the model gets sharp signal on what to fill
+                                       #      Reward *only* comes from predicting the right
+                                       #      answer chars, not just fitting filler.
     latent_consistency_weight: float = 0.1
     state_evolution_weight: float = 0.1
+
+    # Visibility
+    print_every_batches: int = 50     # visible "TRAIN" log every N batches with loss + a sample
+    gen_sample_every: int = 200       # generate a sample every N batches (heavy)
+    save_initial_loss_baseline: bool = True
 
     # Misc
     seed: int = 42
@@ -136,11 +146,59 @@ class Trainer:
             "samples": [],
         }
 
-    def train_epoch(self, dataloader: DataLoader) -> float:
-        """Run one training epoch."""
+    def _answer_positions(self, ids: torch.Tensor) -> Optional[torch.Tensor]:
+        """Find the token positions right AFTER 'Answer: ' in each batch row.
+
+        Returns a [batch, seq_len] bool mask (True at the answer positions)
+        OR None if 'Answer:' isn't a contiguous pattern in the vocab (then
+        we silently fall back to plain next-token loss).
+
+        Why focus on the answer slot?  Most training characters are easy filler
+        (spaces, the name John, the verb "moved"). Gradient from those drowns
+        out the signal for "what goes in the answer slot." Focusing loss on
+        the answer slot means the model gets a sharp, focused signal that
+        directly improves exact-match accuracy.
+        """
+        ans_lit = self.tokenizer.encode("Answer: ", max_len=None)
+        if len(ans_lit) < 3:
+            return None  # can't pattern-match
+        L = len(ans_lit)
+        bsz, sl = ids.shape
+        if sl <= L:
+            return None
+        mask = torch.zeros((bsz, sl), dtype=torch.bool, device=ids.device)
+        # Slide a window per row.
+        ids_cpu = ids.detach()
+        for b in range(bsz):
+            row = ids_cpu[b].tolist()
+            # Build rolling "last L tokens equal ans_lit"
+            i = L - 1
+            in_run = False
+            for t in range(L, sl):
+                if row[t - L:t] == ans_lit:
+                    # tokens indices [t, t+1, ...] are answer positions
+                    # but we want the *target* positions (y = ids[1:]), which
+                    # are answer positions [t-1, t, t+1, ...]. Align with y:
+                    # y[t-1] is the first answer char.
+                    mask[b, max(0, t - 1):] = True
+                    break
+        return mask
+
+    def train_epoch(self, dataloader: DataLoader, eval_during_epoch: bool = False) -> Tuple[float, dict]:
+        """Run one training epoch with mid-epoch visibility.
+
+        Two loss numbers are reported mid-epoch so the user can SEE whether
+        the model is improving on filler (loss_full) or on the answer slot
+        (loss_answer) specifically. Modest mid-epoch generation + cheap QA
+        snapshots make training legible instead of "just a number at the end."
+        """
         self.model.train()
         total_loss = 0
         n_batches = 0
+        info = {"mid_epoch_samples": [], "mid_epoch_qa": []}
+
+        pb_every = self.config.print_every_batches
+        g_every   = self.config.gen_sample_every
 
         pbar = tqdm(dataloader, desc=f"Training [{self.config.exp_id}]")
         for batch_x, batch_y in pbar:
@@ -151,12 +209,36 @@ class Trainer:
 
             # Forward pass - all models produce [batch, seq, vocab]
             logits = self.model(batch_x)
-            
-            # Reshape for loss computation
-            logits = logits.reshape(-1, logits.size(-1))
-            targets = batch_y.reshape(-1)
-            
-            loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.vocab[self.tokenizer.pad_token])
+            pad_id = self.tokenizer.vocab[self.tokenizer.pad_token]
+
+            # Build per-token loss. We compute the answer-slot mask *over the
+            # input positions* (batch_x) but use it with the target positions
+            # (batch_y) by sliding one step earlier.
+            flat_logits = logits.reshape(-1, logits.size(-1))
+            flat_targets = batch_y.reshape(-1)
+            loss_per_token = F.cross_entropy(
+                flat_logits, flat_targets, ignore_index=pad_id, reduction='none',
+            ).reshape(batch_y.shape)
+
+            # Standard uniform cross-entropy weight is 1.0. Optional answer-focus:
+            # weight = 1 + answer_loss_weight * mask_of_answer_positions. Default 0.
+            ans_w = self.config.answer_loss_weight
+            if ans_w > 0:
+                mask_in = self._answer_positions(batch_x)
+                if mask_in is not None:
+                    # align mask with batch_y: answer chars in batch_y are
+                    # shifted one position earlier than in batch_x.
+                    mask = torch.zeros_like(mask_in)
+                    mask[:, :-1] = mask_in[:, 1:]  # y[:, t] is x[:, t+1]
+                else:
+                    mask = torch.zeros_like(batch_y, dtype=torch.bool)
+                mask = mask & (batch_y != pad_id)  # don't double-count pad
+                weights = 1.0 + ans_w * mask.to(loss_per_token.dtype)
+            else:
+                weights = torch.ones_like(loss_per_token)
+
+            non_pad = (batch_y != pad_id).float()
+            loss = (loss_per_token * weights * non_pad).sum() / non_pad.sum().clamp(min=1.0)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip)
@@ -167,7 +249,69 @@ class Trainer:
             n_batches += 1
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        return total_loss / max(n_batches, 1)
+            # -------- visible TRAIN progress --------
+            if pb_every > 0 and (n_batches % pb_every == 0):
+                with torch.no_grad():
+                    if ans_w > 0 and mask.any():
+                        ans_l = (loss_per_token * mask.to(loss_per_token.dtype)).sum() / mask.float().sum().clamp(min=1.0)
+                    else:
+                        ans_l = loss_per_token.mean()
+                    full_l = loss_per_token.mean()
+                print(f"  [TRAIN] exp={self.config.exp_id} ep={len(self.metrics['train_loss'])+1} "
+                      f"batch={n_batches}/{len(dataloader)} "
+                      f"loss_full={full_l.item():.3f} loss_answer={ans_l.item():.3f} "
+                      f"lr={self.optimizer.param_groups[0]['lr']:.2e}")
+
+            # -------- visible mid-epoch generation ----------
+            if eval_during_epoch and g_every > 0 and (n_batches % g_every == 0):
+                snap = self._mid_epoch_sample()
+                if snap:
+                    info["mid_epoch_samples"].append(snap)
+
+            # -------- mid-epoch cheap QA ----------
+            if eval_during_epoch and g_every > 0 and (n_batches % (2 * g_every) == 0):
+                qa = self.run_qa_eval_quick()
+                if qa:
+                    info["mid_epoch_qa"].append(qa)
+                    print(f"  [MID-QA] n_eval={qa['n']} acc={qa['overall_accuracy']:.3f}")
+
+        return total_loss / max(n_batches, 1), info
+
+    @torch.no_grad()
+    def _mid_epoch_sample(self) -> Optional[dict]:
+        """Generate one sample mid-epoch so we can see what the model is doing."""
+        from src.dataset import build_prompt, parse_answer
+        ds = getattr(self, "_qa_snapshot_dataset", None)
+        if not ds:
+            return None
+        sample = ds[0]
+        if not sample.get("question"):
+            return None
+        prompt = build_prompt(sample)
+        # greedy + a tiny chance of sampling is bad; use greedy for visibility
+        gen = self.generate(prompt, max_tokens=24, temperature=0.0)
+        print(f"  [GEN ] Q={sample['question']!r} "
+              f"expected={sample['answer']!r} got={gen.strip()!r}")
+        return {"prompt": prompt, "expected": sample["answer"], "generated": gen.strip()}
+
+    @torch.no_grad()
+    def run_qa_eval_quick(self, n: int = 32) -> Optional[dict]:
+        """Cheap, fast QA on first n val samples for live-monitoring."""
+        from src.dataset import build_prompt, parse_answer
+        ds = getattr(self, "_qa_snapshot_dataset", None)
+        if not ds:
+            return None
+        self.model.eval()
+        ok, tot = 0, 0
+        for s in ds[:n]:
+            if not s.get("question"):
+                continue
+            prompt = build_prompt(s)
+            gen = self.generate(prompt, max_tokens=20, temperature=0.0)
+            pred = parse_answer(gen).strip().lower()
+            exp = s["answer"].strip().lower()
+            ok += int(pred == exp); tot += 1
+        return {"overall_accuracy": ok / max(tot, 1), "n": tot}
 
     @torch.no_grad()
     def evaluate(self, dataloader: DataLoader) -> float:
@@ -323,7 +467,16 @@ class Trainer:
         val_loader: Optional[DataLoader] = None,
         qa_dataset: Optional[List[dict]] = None,
     ):
-        """Full training loop."""
+        """Full training loop.
+
+        Stages:
+          STAGE: data    -- dataset / tokenizer / answer-slot coverage stats
+          STAGE: token   -- vocab info (size, special-token presence)
+          STAGE: init    -- model class & param count vs same-size baseline
+          STAGE: train   -- per-epoch: train_loss, val_loss, qa_acc
+          STAGE: gen     -- mid-epoch sample generations (visible)
+          STAGE: done    -- final summary
+        """
         print(f"\n{'='*60}")
         print(f"Experiment: {self.config.exp_id}")
         print(f"Model: {self.config.model}")
@@ -331,14 +484,46 @@ class Trainer:
         print(f"Parameters: {sum(p.numel() for p in self.model.parameters()):,}")
         print(f"{'='*60}\n")
 
+        # ---- STAGE: data ----
+        print(f"STAGE: data exp={self.config.exp_id} "
+              f"train_batches={len(train_loader)} val_batches={len(val_loader) if val_loader else 0} "
+              f"max_seq_len={self.config.max_seq_len}")
+        if qa_dataset:
+            from collections import Counter
+            ttc = Counter(s["task_type"] for s in qa_dataset if s.get("question"))
+            print(f"  qa={len([s for s in qa_dataset if s.get('question')])} per_task={dict(ttc)}")
+
+        # ---- STAGE: token ----
+        ans_lit = self.tokenizer.encode("Answer: ", max_len=None)
+        print(f"STAGE: token exp={self.config.exp_id} "
+              f"vocab_size={self.tokenizer.vocab_size} "
+              f"'Answer: ' encodes_to={ans_lit}")
+
+        # ---- STAGE: init ----
+        print(f"STAGE: init exp={self.config.exp_id} optimizer=AdamW "
+              f"lr={self.config.learning_rate} clip={self.config.gradient_clip}")
+
+        # store the qa snapshot for mid-epoch visibility
+        self._qa_snapshot_dataset = list(qa_dataset) if qa_dataset else None
+
         start_time = time.time()
 
         for epoch in range(1, self.config.num_epochs + 1):
             epoch_start = time.time()
 
-            # Train
-            train_loss = self.train_epoch(train_loader)
+            # Train (with mid-epoch visibility)
+            train_loss, info = self.train_epoch(
+                train_loader,
+                eval_during_epoch=(qa_dataset is not None and epoch % self.config.eval_every == 0),
+            )
             self.metrics["train_loss"].append(train_loss)
+            # stash visible mid-epoch snapshots in metrics for offline review
+            if info["mid_epoch_samples"]:
+                self.metrics.setdefault("mid_epoch_samples", []).extend(
+                    [{"epoch": epoch, **s} for s in info["mid_epoch_samples"]])
+            if info["mid_epoch_qa"]:
+                self.metrics.setdefault("mid_epoch_qa", []).extend(
+                    [{"epoch": epoch, **q} for q in info["mid_epoch_qa"]])
 
             # Validate
             val_loss = None
@@ -346,7 +531,7 @@ class Trainer:
                 val_loss = self.evaluate(val_loader)
                 self.metrics["val_loss"].append(val_loss)
 
-            # QA evaluation
+            # Full QA evaluation
             qa_results = None
             if qa_dataset and epoch % self.config.eval_every == 0:
                 qa_results = self.run_qa_eval(qa_dataset)
@@ -354,7 +539,7 @@ class Trainer:
 
                 # Print + record sample outputs so we can SEE whether the
                 # model's output is actually useful, not just low-loss.
-                print(f"\n--- SAMPLE OUTPUTS (epoch {epoch}) ---")
+                print(f"\n--- [EVAL] exp={self.config.exp_id} epoch {epoch} ---")
                 for sample in qa_dataset[:4]:
                     if not sample.get("question"):
                         continue
@@ -386,6 +571,7 @@ class Trainer:
             log_msg += f"time: {epoch_time:.1f}s"
             print(log_msg)
             print(f"STAGE: train exp={self.config.exp_id} ep={epoch}/{self.config.num_epochs} "
+                  f"train_loss={train_loss:.4f} "
                   f"val_loss={val_loss if val_loss is not None else '-'} "
                   f"qa_acc={qa_results['overall_accuracy'] if qa_results else '-'}")
 

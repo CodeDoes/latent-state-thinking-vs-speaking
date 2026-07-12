@@ -105,6 +105,15 @@ def run_one(key: str, args, dataset, device) -> dict:
         latent_steps=spec["ls"], batch_size=args.batch_size,
         num_epochs=args.epochs, max_seq_len=args.max_seq_len,
         eval_every=args.eval_every, seed=args.seed, device=str(device),
+        # Visibility: mid-epoch loss numbers + a fresh generation sample so the
+        # user can actually watch the model learn (instead of staring at a
+        # blank console for an hour and then a single accuracy=0 result).
+        print_every_batches=args.print_every_batches,
+        gen_sample_every=args.gen_sample_every,
+        # Answer-slot focus: up-weight loss on the "Answer:" continuation so
+        # the model gets sharp signal on the *answer* chars, not just filler.
+        # 0 disables. 1.0 doubles the loss weight on answer positions.
+        answer_loss_weight=args.answer_loss_weight,
     )
     trainer = Trainer(model, config, tokenizer, output_dir=args.output_dir)
     train_loader = DataLoader(TextDataset(train_texts, tokenizer, max_len=args.max_seq_len),
@@ -253,6 +262,13 @@ def main():
     ap.add_argument("--device", default="auto")
     ap.add_argument("--output_dir", default="experiments")
     ap.add_argument("--analyze", action="store_true", help="Report existing dirs only")
+    ap.add_argument("--print_every_batches", type=int, default=50,
+                    help="Visible [TRAIN] log every N batches. 0 to disable.")
+    ap.add_argument("--gen_sample_every", type=int, default=200,
+                    help="Visible [GEN] sample every N batches mid-epoch. 0 to disable.")
+    ap.add_argument("--answer_loss_weight", type=float, default=1.0,
+                    help="Extra loss weight on answer-slot tokens (focused loss)."
+                         " 0 = standard uniform CE; 1.0 = doubles answer-slot loss.")
     args = ap.parse_args()
 
     if args.analyze:

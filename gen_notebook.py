@@ -30,6 +30,7 @@ EMBED = [
     ("src/tokenizer.py", (HERE / "src/tokenizer.py").read_text()),
     ("src/models.py", (HERE / "src/models.py").read_text()),
     ("src/trainer.py", (HERE / "src/trainer.py").read_text()),
+    ("src/diagnostics.py", (HERE / "src/diagnostics.py").read_text()),
     ("src/modules.py", (HERE / "src/modules.py").read_text()),
     ("bench.py", (HERE / "bench.py").read_text()),
     ("train_modules.py", (HERE / "train_modules.py").read_text()),

@@ -1,0 +1,120 @@
+{
+  "config": {
+    "quick": true,
+    "device": "cpu",
+    "epochs": 4,
+    "phase0_epochs": 8,
+    "phase1_epochs": 3,
+    "n_samples": 400,
+    "d_state": 48,
+    "d_model": 32,
+    "batch_size": 32,
+    "max_seq_len": 192,
+    "seed": 42,
+    "fresh": false,
+    "analyze": false
+  },
+  "history": {
+    "phase0_loss": [],
+    "phase1": {
+      "make_B(A)->B": [
+        0.548111223899152,
+        0.010192481176657737,
+        0.008616278614457427
+      ],
+      "make_A(B)->A": [
+        0.0867507406645387,
+        0.003946957755428942,
+        0.0032988561357816925
+      ],
+      "continue(A)->A2": [
+        0.05817143680136381,
+        0.002017723058984763,
+        0.0014473850639752936
+      ],
+      "continue(B)->B2": [
+        0.05341569794530886,
+        0.006276157016501478,
+        0.004364102392160482
+      ],
+      "composer": [
+        4.070662785267484,
+        3.449352178020754,
+        2.8816602679266445
+      ]
+    },
+    "qa_acc": [
+      0.0,
+      0.0
+    ],
+    "qa_task": {
+      "location": [
+        0.0,
+        0.0
+      ],
+      "recall": [
+        0.0,
+        0.0
+      ],
+      "inventory": [
+        0.0,
+        0.0
+      ],
+      "transfer": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "final_report": {
+    "qa_accuracy": 0.0,
+    "task_accuracy": {
+      "location": 0.0,
+      "recall": 0.0,
+      "inventory": 0.0,
+      "transfer": 0.0
+    },
+    "n": 69,
+    "d_state": 48,
+    "data_diversity": {
+      "n_total": 400,
+      "per_task": {
+        "transfer": 87,
+        "location": 106,
+        "inventory": 89,
+        "recall": 75,
+        "story": 43
+      },
+      "n_qa": 357,
+      "n_unique_answers": 135,
+      "most_common_answer": [
+        "garden",
+        32
+      ],
+      "majority_baseline_acc": 0.0896,
+      "avg_answer_chars": 8.3,
+      "recall_n": 75,
+      "recall_unique_passwords": 75,
+      "verdict": "data looks diverse (low majority baseline, many unique answers)"
+    },
+    "io_oracle": {
+      "autoenc_recon_char_acc": 0.1814,
+      "oracle_answer_head_acc": 0.0,
+      "oracle_n": 69,
+      "composer_D_mse": 0.0173,
+      "interpretation": "MATH: the answer head cannot decode even the TRUE teacher state (<0.5, got 0.00) -- the generation head / I-O mapping is wrong."
+    },
+    "make_B": {
+      "make_B_mse": 0.0083,
+      "target_var": 0.0079,
+      "collapsing": true,
+      "verdict": "COLLAPSING to mean (MSE ~ variance floor: input state lacks info)"
+    },
+    "gen_histogram": {
+      "fractions": {
+        "alpha": 1.0
+      },
+      "verdict": "produces alphabetic text (plausible answers)"
+    }
+  }
+}
