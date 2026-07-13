@@ -23,6 +23,7 @@ import math
 from collections import defaultdict
 
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 
 from src.latent import (build_vocab, Tok, gen_world, compute_Lstar,
@@ -46,6 +47,13 @@ def main():
                     help="T06 auxiliary reconstruction loss weight (0 = off)")
     ap.add_argument("--no_t05", action="store_true",
                     help="disable T05 uniqueness weighting (uniform answer weights)")
+    ap.add_argument("--max_loop", type=int, default=0,
+                    help="T09 latent reasoning loop: self-recursion steps after "
+                         "context fold (0 = off)")
+    ap.add_argument("--min_certainty", type=float, default=0.9,
+                    help="T09 inference early-stop readiness threshold")
+    ap.add_argument("--conf_w", type=float, default=0.1,
+                    help="T09 readiness-head BCE weight (target=ready after thinking)")
     args = ap.parse_args()
     if args.quick:
         args.n_samples = 400
@@ -96,7 +104,8 @@ def main():
         print("T05 disabled (--no_t05): uniform answer weights")
 
     latent = LatentModel(vocab, d_emb=args.d_emb, d_state=d_state,
-                         d_hidden=args.d_hidden, n_locs=len(cats["loc"])).to(dev)
+                         d_hidden=args.d_hidden, n_locs=len(cats["loc"]),
+                         scale=max(args.max_loop, 1)).to(dev)
     latent.bos = tok.bos
     latent.eos = tok.eos
     baseline = BaselineAR(vocab, d_emb=args.d_emb, d_hidden=args.d_hidden).to(dev)
@@ -118,12 +127,16 @@ def main():
     for ep in range(args.epochs):
         for s in tr:
             src_t = torch.tensor(tok.enc(s["source"]), device=dev)
-            # --- latent model: think ONCE over the source ---
-            s_src = latent.think_state(src_t, der_src, args.K)   # L_src [1,d_state]
+            # --- latent model: think ONCE over the source (then T09 loop) ---
+            s_src = latent.think_state(src_t, der_src, args.K,
+                                       loop_max=args.max_loop, train=True)   # L_src [1,d_state]
             optL.zero_grad()
             ls = 0.0
             if args.recon_w > 0:
                 ls = ls + args.recon_w * latent.recon_loss(s_src, s.get("loc_of", {}), tok)
+            if args.conf_w > 0:
+                ls = ls + args.conf_w * F.binary_cross_entropy(
+                    latent.state_confidence(s_src), torch.ones(1, device=dev))
             for (q, a) in s["queries"]:
                 q_ids = tok.enc(q)
                 a_ids = tok.enc(a)
@@ -156,7 +169,8 @@ def main():
         tB = defaultdict(lambda: [0, 0])  # [correct, total] baseline
         for s in val:
             src_t = torch.tensor(tok.enc(s["source"]), device=dev)
-            s_src = latent.think_state(src_t, der_src, args.K)
+            s_src = latent.think_state(src_t, der_src, args.K,
+                                       loop_max=args.max_loop, train=False)
             for (q, a) in s["queries"]:
                 qt = q[0]  # 'WHERE' / 'AT' / 'SAME'
                 gen = latent.ffn_gen(s_src, der_ans, tok.enc(q),
@@ -205,6 +219,9 @@ def main():
         "max_events": args.max_events,
         "T05_uniqueness_weighted": not args.no_t05,
         "T06_recon_weight": args.recon_w,
+        "T09_loop_max": args.max_loop,
+        "T09_min_certainty": args.min_certainty,
+        "T09_transformer_scale": args.max_loop,
         "params_latent": n_lat,
         "params_baseline": n_base,
         "val_latent_acc": accL / n,

@@ -140,46 +140,76 @@ def compute_Lstar(cats, n_items=6, bits_per_float=16):
 
 # ----------------- latent model: sequential think + speak -----------------
 class LatentModel(nn.Module):
-    def __init__(self, vocab, d_emb=128, d_state=64, d_der=8, d_hidden=256, n_locs=32):
+    def __init__(self, vocab, d_emb=128, d_state=64, d_der=8, d_hidden=256,
+                 n_locs=32, scale=1):
         super().__init__()
         self.vocab = len(vocab)
         self.d_state = d_state
         self.n_locs = n_locs
+        self.scale = scale
+        # GRAND idea: a TRANSFORMER encodes the (small) context; the latent
+        # state then loops (re-attends) the encoder reps to "derive the future",
+        # then decodes rapidly. Scale the transformer by `scale` (= max_loop)
+        # so the loop has a rich context representation; capped at 512-d to
+        # preserve quality.
+        d_ctx = min(d_emb * scale, 512)
+        self.d_emb = d_ctx
         self.der_emb = nn.Embedding(2, d_der)
-        self.emb = nn.Embedding(self.vocab, d_emb, padding_idx=0)
+        self.emb = nn.Embedding(self.vocab, d_ctx, padding_idx=0)
         self.s0 = nn.Parameter(torch.zeros(d_state))
-        # recurrent think cell: (state, token_emb, derive) -> new_state
+        nhead = 4 if d_ctx % 4 == 0 else 2
+        self.ctx_enc = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_ctx, nhead, dim_feedforward=2 * d_ctx,
+                                       batch_first=True),
+            num_layers=min(scale, 4))
+        # recurrent think cell: (state, token_rep, derive) -> new_state
         self.think = nn.Sequential(
-            nn.Linear(d_state + d_emb + d_der, 2 * d_state),
+            nn.Linear(d_state + d_ctx + d_der, 2 * d_state),
             nn.Tanh(),
             nn.Linear(2 * d_state, d_state),
             nn.Tanh(),
         )
-        self.qvec = nn.Linear(d_emb, d_emb)
-        # speak cell: (prev_token_emb, state, derive, qvec) -> hidden
-        self.speak = nn.GRU(d_emb + d_state + d_der + d_emb, d_hidden,
-                             batch_first=True)
+        self.qvec = nn.Linear(d_ctx, d_ctx)
+        self.speak = nn.GRU(2 * d_ctx + d_state + d_der, d_hidden, batch_first=True)
         self.out = nn.Linear(d_hidden, self.vocab)
         self.comp = nn.Linear(d_hidden, 1)
+        # T09 readiness head (loop early-stop)
+        self.state_conf = nn.Linear(d_state, 1)
         # T06 auxiliary reconstruction head: predict each item's final
         # location from the latent state (forces the state to encode the
         # trajectory/relational info AT/SAME queries need).
-        self.recon = nn.Linear(d_state + d_emb, n_locs)
+        self.recon = nn.Linear(d_state + d_ctx, n_locs)
 
-    # ---- thinking: fold the token sequence into a single latent state ----
-    def think_state(self, ids, der_id, K=1):
-        """Process `ids` token-by-token; return the final latent state [1, d_state].
-        K = number of recurrent think-steps applied per input token."""
-        der = self.der_emb(der_id).unsqueeze(0)  # [1, d_der]
-        s = self.s0.unsqueeze(0)                  # [1, d_state]
+    # ---- thinking: transformer-encode context, fold, then loop-derive ----
+    def think_state(self, ids, der_id, K=1, loop_max=0, min_certainty=0.9,
+                    train=False):
+        """Encode context ONCE with the transformer; fold state over the reps;
+        then re-attend the reps `loop_max` times to 'derive the future' (cheap,
+        small context, no re-tokenization). Stops early at inference when
+        readiness >= min_certainty. Then rapid-decode many tokens from `s`."""
+        der = self.der_emb(der_id).unsqueeze(0)
+        s = self.s0.unsqueeze(0)
         if ids.numel() == 0:
             return s
-        x = self.emb(ids)                        # [T, d_emb]
-        for t in range(x.size(0)):
-            xt = x[t].unsqueeze(0)               # [1, d_emb]
+        x = self.emb(ids).unsqueeze(0)            # [1, T, d_ctx]
+        reps = self.ctx_enc(x)[0]                 # [T, d_ctx]  (context encoded ONCE)
+        T = reps.size(0)
+        for t in range(T):
+            xt = reps[t].unsqueeze(0)
             for _ in range(K):
                 s = self.think(torch.cat([s, xt, der], dim=1))
+        if loop_max <= 0:
+            return s
+        for _ in range(loop_max):
+            if not train and torch.sigmoid(self.state_conf(s.squeeze(0))).item() >= min_certainty:
+                break
+            for t in range(T):
+                s = self.think(torch.cat([s, reps[t].unsqueeze(0), der], dim=1))
         return s
+
+    def state_confidence(self, s):
+        """Readiness in [0,1]: is the latent oriented / ready to answer?"""
+        return torch.sigmoid(self.state_conf(s.squeeze(0)))
 
     def ffn_loss(self, s, der_id, q_ids, tgt_ids, lam_comp=1.0):
         """Train FFN(L, derive) -> target tokens (teacher-forced)."""

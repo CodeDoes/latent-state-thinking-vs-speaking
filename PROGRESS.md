@@ -77,9 +77,10 @@ precise recall (WHERE) because the current design has **no tape**.
 | `exp_t05_local_2026-07-13` (n=600, 8ep, d48, RTX2050) | 2026-07-13 | T05, T03 | lat 0.596 vs base 0.617; lat WHERE 0.041 (2.3×↑), AT/SAME still ~0.8 NONE-cheat; T05 insufficient alone | ✅ done |
 | `exp_t06_local_2026-07-13` (recon head, alone) | 2026-07-13 | T06, T04 | lat 0.626 vs base 0.650; latent AT 0.895 (>cheat 0.869, >base 0.886!); SAME/WHERE ~flat | ✅ done |
 | `exp_t05t06_local_2026-07-13` (T05+T06 combined) | 2026-07-13 | T05,T06,T02 | lat 0.590 vs base 0.587 (latent WINS); lat AT 0.798 / SAME 0.844 > base 0.763/0.762; WHERE base 0.163 >> lat 0.031 | ✅ done |
-| **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
+| `exp_t09_loop_2026-07-13` (loop, self-recur) | 2026-07-13 | T09 | lat 0.578 vs base 0.587; **epoch-5 collapse** (0.641→0.539); self-recur on zero-vec is NOT real derive; conf head caused train/infer mismatch | ❌ rejected |
+| `exp_t09b_transformer_2026-07-13` (transformer-scaled + re-attention loop) | 2026-07-13 | T09, T08 | lat **0.649** vs base 0.626 (latent WINS, stable 8 ep, no collapse); L AT 0.866 / SAME 0.911 / WHERE 0.035; B AT 0.773 / SAME 0.881 / WHERE 0.118; params lat 9.98M (transformer 512×4, scaled by max_loop=8, capped @512 for quality) vs base 399K | ✅ done |
+| **proposed** break AT NONE-cheat (e.g., AT always has ≥1 member) | — | T04 | not run | 🟡 planned |
 | **proposed** Tape (Model C) for WHERE | — | T02 | not run | 🟡 planned |
-| **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
 
 ## Research Log (condensed milestones)
 - **2026-07-11** — Inception; architecture built (`BaselineTransformer`,
@@ -115,4 +116,5 @@ precise recall (WHERE) because the current design has **no tape**.
    latent 0.031 (trajectory-recall loss → latent needs a Tape, Model C).
    **Collapse FIXED.** Next: iter-3 mix (tilt to AT/SAME), then Tape.
 3. **iter-3** integration-heavy mix → expect latent to win overall (confirms T02).
-4. **Scale** to ~20M params on local GPU (T08) for the first-night win condition.
+4. **T09b DONE** (RTX2050, n=500, 8ep, transformer 512×4 scaled by max_loop=8, re-attention loop, recon=1.0): latent **0.649 vs baseline 0.626** — clean win, stable (no collapse). Wins **SAME 0.911 > 0.881** (real relational reasoning, T02) and **AT 0.866 > 0.773** but AT≈NONE-cheat ceiling (0.869) so that margin is illusory (cheating). Loses **WHERE 0.035 < 0.118** → latent needs a Tape (Model C) for trajectory recall. Lesson: scaling the context **transformer** by max_loop + looping re-attention fixed T09's collapse; the win is driven by the transformer encoder + recon, loop early-exits at infer (conf≥0.9).
+5. **Next:** (a) break AT NONE-cheat so the AT win is real (task redesign), (b) add Tape/Model C for WHERE, (c) tune loop to actually run at inference (lower min_certainty or lower conf target).
