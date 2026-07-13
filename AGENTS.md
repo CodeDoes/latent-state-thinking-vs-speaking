@@ -14,11 +14,11 @@ This is an autonomous research project exploring whether a neural architecture c
 
 | File | Purpose |
 |---|---|
-| `CONVO.md` | Full conversation history (~2000 lines) with ChatGPT tracing the idea's evolution |
-| `USER.md` | Refined architecture specification (hybrid cognitive architecture with SSM + Tape + Context + Decoder) |
-| `USER_base.md` | Autonomous research loop specification and agent behavior rules |
+| `CONVO.md` | (removed — content consolidated into AGENTS.md / PROGRESS.md) |
+| `USER.md` | (removed — architecture spec consolidated into AGENTS.md) |
+| `USER_base.md` | (removed — agent-behavior rules consolidated into AGENTS.md) |
 | `PROGRESS.md` | Current project status, research log, and experiment tracking |
-| `PLAN.md` | Detailed phased research plan, research ladder, and deliverables |
+| `docs/PLAN.md` | Detailed phased research plan, research ladder, and deliverables |
 | `devenv.nix` / `devenv.yaml` | Nix development environment configuration |
 | `src/modules.py` | Separable latent-state pieces (TokenEncoder/Decoder, StateTransform for make_B/make_A/continue, AnswerComposer, ReasoningStep, ContextManager, Tape) |
 | `train_modules.py` | Modular training: each piece trained separately, curriculum (autoencoder to latent algebra) |
@@ -204,7 +204,7 @@ Standard next-token prediction encourages shortcutting. Implement:
 
 ## Phases
 
-See `PLAN.md` for full details. Summary:
+See `docs/PLAN.md` for full details. Summary:
 
 1. **Phase 1: Baseline** — Tiny transformer LM + recurrent latent model
 2. **Phase 2: Synthetic Tasks** — Toy world generator, memory/recall/story datasets

@@ -420,7 +420,7 @@ def main():
     # ---- Phase 0: output sane words (the 'baseline' foundation) ----
     # --quick uses its OWN cache so it never clobbers the real 256-dim
     # foundation; a d_state mismatch triggers a retrain instead of a crash.
-    found_ckpt = Path("modules_foundation_quick.pt" if args.quick else "modules_foundation.pt")
+    found_ckpt = Path("artifacts/modules_foundation_quick.pt" if args.quick else "artifacts/modules_foundation.pt")
     loaded = False
     if found_ckpt.exists() and not args.fresh:
         ck = torch.load(found_ckpt, map_location=device, weights_only=True)

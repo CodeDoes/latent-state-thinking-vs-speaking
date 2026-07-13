@@ -281,7 +281,7 @@ def main():
         results = analyze_existing(args.output_dir)
         report = render_report(results)
         print(report)
-        Path("bench_report.md").write_text(report)
+        Path("reports/bench_report.md").write_text(report)
         print(f"\nSaved bench_report.md ({len(results)} experiments)")
         return
 
@@ -318,8 +318,8 @@ def main():
 
     report = render_report(results)
     print("\n" + report)
-    Path("bench_report.md").write_text(report)
-    Path("bench_results.json").write_text(json.dumps(results, indent=2))
+    Path("reports/bench_report.md").write_text(report)
+    Path("reports/bench_results.json").write_text(json.dumps(results, indent=2))
     print(f"\nSaved bench_report.md and bench_results.json ({len(results)} models)")
     print("STAGE: done")
 

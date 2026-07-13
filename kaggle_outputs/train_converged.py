@@ -19,6 +19,7 @@ on Kaggle GPU (--device cuda).
 import argparse
 import json
 import random
+from collections import defaultdict
 
 import torch
 import torch.optim as optim
@@ -119,27 +120,46 @@ def main():
                                      tok.enc(a), baseline.bos).backward()
                 optB.step()
 
-        # --- validation ---
+        # --- validation (with per-query-type breakdown) ---
         accL = accB = n = 0
+        tL = defaultdict(lambda: [0, 0])  # [correct, total] latent
+        tB = defaultdict(lambda: [0, 0])  # [correct, total] baseline
         for s in val:
             src_t = torch.tensor(tok.enc(s["source"]), device=dev)
             s_src = latent.think_state(src_t, der_src, args.K)
             for (q, a) in s["queries"]:
+                qt = q[0]  # 'WHERE' / 'AT' / 'SAME'
                 gen = latent.ffn_gen(s_src, der_ans, tok.enc(q),
                                      max_len=16, tau=0.5)
-                if tok.dec(gen) == tok.dec(tok.enc(a)):
+                okL = tok.dec(gen) == tok.dec(tok.enc(a))
+                if okL:
                     accL += 1
+                    tL[qt][0] += 1
+                tL[qt][1] += 1
                 bg = baseline.generate(tok.enc(s["source"]), tok.enc(q),
                                       baseline.bos, max_len=16, tau=0.5)
-                if tok.dec(bg) == tok.dec(tok.enc(a)):
+                okB = tok.dec(bg) == tok.dec(tok.enc(a))
+                if okB:
                     accB += 1
+                    tB[qt][0] += 1
+                tB[qt][1] += 1
                 n += 1
+        pct = lambda d: {k: round(d[k][0] / d[k][1], 4) if d[k][1] else 0.0
+                      for k in sorted(d)}
+        byL, byB = pct(tL), pct(tB)
+        # per-query COMPUTE note: latent thinks ONCE (source, K steps) then
+        # speaks N times from a fixed state; baseline re-encodes the full source
+        # N times. So per query the latent model is far cheaper as N grows.
         print(f"  epoch {ep} val latent={accL / n:.3f} baseline={accB / n:.3f} "
-              f"(n_q={n})", flush=True)
+              f"(n_q={n})  by_type L={byL} B={byB}", flush=True)
 
     report = {
         "design": "converged SSM(think)+FFN(speak) vs token-by-token baseline",
         "task": "long-horizon multi-hop tracking, multi-query worlds",
+        "hypothesis_note": (
+            "latent thinks ONCE from the source then answers N queries from a "
+            "fixed-size state (amortized); baseline re-encodes the full source "
+            "for every query, so it has more info at answer time but pays Nx cost."),
         "Lstar_bits": Lstar_bits,
         "Lstar_floats": Lstar_floats,
         "d_state": d_state,
@@ -149,6 +169,7 @@ def main():
         "n_train": len(tr),
         "n_val": len(val),
         "n_val_queries": n,
+        "q_per_world_avg": round(n / max(1, len(val)), 2),
         "epochs": args.epochs,
         "K": args.K,
         "max_events": args.max_events,
@@ -156,6 +177,8 @@ def main():
         "params_baseline": n_base,
         "val_latent_acc": accL / n,
         "val_baseline_acc": accB / n,
+        "latent_by_type": byL,
+        "baseline_by_type": byB,
         "interpretation": (
             "latent wins" if accL > accB else
             "baseline wins" if accB > accL else "tie"),

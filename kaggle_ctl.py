@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 KERNEL = "kitastro/hybrid-latent-state-language-model"
-OUT_DIR = "kaggle_output"
+OUT_DIR = "kaggle_outputs"
 
 
 def sh(cmd):
@@ -100,7 +100,7 @@ def pre_flight():
 # ---------------------------------------------------------------------------
 def push():
     print(">> pushing notebook + src/ to Kaggle (triggers run)...")
-    r = sh("kaggle kernels push -p .")
+    r = sh("kaggle kernels push -p notebooks")
     print(r.stdout[-1500:])
     if r.returncode != 0:
         print("PUSH FAILED:\n", r.stderr[-1500:])

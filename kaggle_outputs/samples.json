@@ -1,0 +1,38 @@
+{
+  "exp001": [
+    {
+      "task": "location",
+      "prompt": "John was in the kitchen. Mary was in the garden. John moved from kitchen to bedroom. Where is John?",
+      "generated": ""
+    },
+    {
+      "task": "inventory",
+      "prompt": "Alex was in the office with apple and book. Alex picked up key. What does Alex have?",
+      "generated": " bedroom to bedroom. Mary dropped pen. Mary moved "
+    }
+  ],
+  "exp003": [
+    {
+      "task": "location",
+      "prompt": "John was in the kitchen. Mary was in the garden. John moved from kitchen to bedroom. Where is John?",
+      "generated": "K"
+    },
+    {
+      "task": "inventory",
+      "prompt": "Alex was in the office with apple and book. Alex picked up key. What does Alex have?",
+      "generated": " watch and pen. Max was in the bedroom with nothin"
+    }
+  ],
+  "exp005": [
+    {
+      "task": "location",
+      "prompt": "John was in the kitchen. Mary was in the garden. John moved from kitchen to bedroom. Where is John?",
+      "generated": "gly. Time passed slowly. "
+    },
+    {
+      "task": "inventory",
+      "prompt": "Alex was in the office with apple and book. Alex picked up key. What does Alex have?",
+      "generated": " watch"
+    }
+  ]
+}

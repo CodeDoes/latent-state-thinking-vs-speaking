@@ -164,7 +164,7 @@ nb = {
     "nbformat_minor": 4,
 }
 
-with open("notebook.ipynb", "w") as f:
+with open("notebooks/notebook.ipynb", "w") as f:
     json.dump(nb, f, indent=1)
-print(f"notebook.ipynb generated - {len(nb['cells'])} cells")
+print(f"notebooks/notebook.ipynb generated - {len(nb['cells'])} cells")
 print("Self-contained wrapper: embeds src/ + train_converged.py, runs train_converged.py")

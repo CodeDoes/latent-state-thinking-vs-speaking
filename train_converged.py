@@ -183,7 +183,7 @@ def main():
             "latent wins" if accL > accB else
             "baseline wins" if accB > accL else "tie"),
     }
-    with open("modules_report.json", "w") as f:
+    with open("reports/modules_report.json", "w") as f:
         json.dump(report, f, indent=1)
     print("REPORT " + json.dumps(report))
 
