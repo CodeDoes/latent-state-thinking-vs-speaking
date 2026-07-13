@@ -344,7 +344,14 @@ class Trainer:
         """
         self.model.eval()
 
-        prompt_ids = self.tokenizer.encode(prompt, max_len=self.config.max_seq_len)
+        prompt_ids = self.tokenizer.encode(prompt, max_len=None)
+        # Keep the TAIL of the prompt so the question + "Answer: " cue is never
+        # truncated away. The model needs to see the END of the prompt (not its
+        # start) to know it should emit an answer. encode() keeps the front by
+        # default, so any prompt longer than max_seq_len would otherwise drop
+        # the cue and the model would generate mid-narrative filler ("to to to").
+        if len(prompt_ids) > self.config.max_seq_len:
+            prompt_ids = prompt_ids[-self.config.max_seq_len:]
         generated = list(prompt_ids)
 
         eos_id = self.tokenizer.vocab[self.tokenizer.eos_token]
