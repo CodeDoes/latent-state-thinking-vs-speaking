@@ -210,11 +210,10 @@ class WorldModel(nn.Module):
 
         # Read heads: project a per-entity / per-item slot to its dedicated
         # field. The slot is the disentangled per-entity latent (filled by
-        # last-mention pooling); the head extracts ONE field from it. This is
-        # the (index, current_location_at_index) read the user asked for -- the
-        # location lives IN the entity's slot and a tiny head reads it out.
+        # last-mention pooling); the head extracts ONE field from it. Holding
+        # is the core relation: transfer reads item->holder directly, and
+        # inventory is its inverse (items whose predicted holder == entity).
         self.loc_head = nn.Linear(d_state, N_LOCS)        # entity slot -> location
-        self.inv_head = nn.Linear(d_state, N_ITEMS)       # entity slot -> inventory
         self.holder_head = nn.Linear(self.name_dim, N_NAMES)  # item slot -> holder
 
         # Aux heads: encoder state AT a location/item word must predict it.
@@ -279,8 +278,10 @@ class WorldModel(nn.Module):
         if task == "location":
             return I_TO_LOC[self.loc_head(ent_slot.reshape(1, -1)).argmax(-1).item()]
         if task == "inventory":
-            probs = self.inv_head(ent_slot.reshape(1, -1)).sigmoid()[0]
-            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+            # inventory = inverse of the holder relation (holder_logits is the
+            # per-item holder prediction computed by write())
+            holders = holder_logits.argmax(-1)                        # [N_ITEMS]
+            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
             return " and ".join(items) if items else "nothing"
         if task == "transfer":
             if item_name in ITEM_TO_I:
@@ -443,10 +444,8 @@ def train_world(qa: List[dict], tokenizer: CharTokenizer, device, cfg: WorldTrai
                                            loc_tgt[has_loc].argmax(-1))
             else:
                 loc_loss = torch.zeros((), device=device)
-            # inventory: multi-label BCE over mentioned entities
-            inv_tgt = et.reshape(-1, N_LOCS + N_ITEMS)[em, N_LOCS:]       # [M, N_ITEMS]
-            inv_loss = F.binary_cross_entropy_with_logits(
-                model.inv_head(es), inv_tgt)
+            # inventory: derived from the holder relation (trained via holder_loss),
+            # so no separate inv loss is needed -- see inventory read path.
             # holder: CE over mentioned items that have a known holder
             it = item_targets[idx]                                       # [b,I,name]
             im = item_masks[idx].bool().reshape(-1)                      # [b*I]
@@ -459,7 +458,7 @@ def train_world(qa: List[dict], tokenizer: CharTokenizer, device, cfg: WorldTrai
                     holder_tgt[has_holder].argmax(-1))
             else:
                 holder_loss = torch.zeros((), device=device)
-            field_loss = loc_loss + inv_loss + holder_loss
+            field_loss = loc_loss + holder_loss
 
             # ---- aux: encoder state at location/item words ----
             loc_pos = [(bi, p[0], p[1]) for bi, p in enumerate(prep_chunk) for p in p.loc_tok]
@@ -553,8 +552,10 @@ def run_world_qa(model, qa: List[dict], tokenizer: CharTokenizer, device,
             if task == "location":
                 pred = I_TO_LOC[model.loc_head(ent.unsqueeze(0)).argmax(-1).item()]
             elif task == "inventory":
-                probs = model.inv_head(ent.unsqueeze(0)).sigmoid()[0]
-                items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+                # inventory = inverse of the holder relation
+                hl = model.holder_head(item_slots[j, :, :N_NAMES].reshape(-1, N_NAMES))
+                holders = hl.argmax(-1)                                  # [N_ITEMS]
+                items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
                 pred = " and ".join(items) if items else "nothing"
             elif task == "transfer":
                 if item_name in ITEM_TO_I:

@@ -114,13 +114,14 @@ def main():
                 dbg.append((subj_name, s["answer"], gen,
                             [(I_TO_LOC[k], round(model.loc_head(ent.unsqueeze(0))[0][k].item(), 2)) for k in topk]))
         elif task == "inventory":
-            probs = model.inv_head(ent.unsqueeze(0)).sigmoid()[0]
-            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+            hl = model.holder_head(item_slots[:, :N_NAMES].reshape(-1, N_NAMES))
+            holders = hl.argmax(-1)
+            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
             gen = " and ".join(items) if items else "nothing"
             if len(dbg) < 6 and subj_name in NAME_POOL:
                 dbg.append((subj_name, "inv", s["answer"], gen,
-                            [(I_TO_ITEM[i], round(probs[i].item(), 2))
-                             for i in range(N_ITEMS) if probs[i] > 0.3]))
+                            [(I_TO_ITEM[i], I_TO_NAME[holders[i].item()])
+                             for i in range(N_ITEMS) if holders[i] == subj]))
         elif task == "transfer":
             if item_name in ITEM_TO_I:
                 iidx = ITEM_TO_I[item_name]
@@ -156,7 +157,8 @@ def main():
     torch.save(model.state_dict(), Path(exp_dir) / "model.pt")
 
     for d in dbg:
-        print(f"  [dbg] subj={d[0]} task={d[1]} expected={d[2]} pred={d[3]} probs={d[4]}")
+        extra = d[4] if len(d) > 4 else ""
+        print(f"  [dbg] subj={d[0]} task={d[1]} expected={d[2]} pred={d[3]} extra={extra}")
 
     print(f"\nSTAGE: done task={args.task} acc={acc:.3f} n={n} ({train_s:.0f}s)")
     print(f"  per-task: " + " ".join(f"{t}={a:.3f}" for t, a in task_acc.items()))

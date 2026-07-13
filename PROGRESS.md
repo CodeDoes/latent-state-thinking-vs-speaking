@@ -76,9 +76,10 @@ local experiment runner, saves `experiments/expNNN/{config,metrics,samples,model
 
 **Local small-scale results (CPU, d_state=64, 400 samples, 12 epochs) — real
 eval, NOT Kaggle:**
-  - location : **0.48** (up from ~0.13 random) ✅ validates the design
-  - inventory: 0.12 (combinatorial multi-item tracking; needs more capacity)
-  - transfer / recall: not yet validated (holder read + generative decode)
+  - location : **0.23-0.27** (random 0.10) ✅ WHERE gap closes
+  - inventory: **0.37** (random 0.10) ✅ derived as inverse of holder relation
+  - transfer : **0.19-0.21** (random 0.10) ✅ 2-hop item->holder->location
+  - recall   : not yet validated (generative decode path)
 
 The location win directly confirms the user's `(index, current_location_at_index)`
 framing: once the encoder is forced to represent location words and the slot
