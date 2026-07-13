@@ -38,6 +38,7 @@ modules_foundation.pt
 
 # Kaggle
 kaggle_output/
+kaggle_outputs/
 kernel-metadata.json
 *.log
 kaggle_output_cpu/
