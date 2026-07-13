@@ -30,6 +30,27 @@ from src.latent import (build_vocab, Tok, gen_world, compute_Lstar,
                         LatentModel, BaselineAR)
 
 
+def _match_baseline_params(vocab, d_emb, target):
+    """Binary-search a BaselineAR d_hidden whose param count is closest to
+    `target`, so the AR baseline fights the latent at EQUAL capacity."""
+    lo, hi = 16, 8192
+    best_h = lo
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        p = sum(x.numel() for x in
+                BaselineAR(vocab, d_emb=d_emb, d_hidden=mid).parameters())
+        if p < target:
+            best_h = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    pa = sum(x.numel() for x in
+             BaselineAR(vocab, d_emb=d_emb, d_hidden=best_h).parameters())
+    pb = sum(x.numel() for x in
+             BaselineAR(vocab, d_emb=d_emb, d_hidden=best_h + 1).parameters())
+    return best_h if abs(pa - target) <= abs(pb - target) else best_h + 1
+
+
 def main():
     print("=== train_converged main() entered (imports done) ===", flush=True)
     ap = argparse.ArgumentParser()
@@ -108,7 +129,12 @@ def main():
                          scale=max(args.max_loop, 1)).to(dev)
     latent.bos = tok.bos
     latent.eos = tok.eos
-    baseline = BaselineAR(vocab, d_emb=args.d_emb, d_hidden=args.d_hidden).to(dev)
+    # Fair fight: size the AR baseline to the SAME param budget as the latent
+    # (the latent is scaled by max_loop; the baseline matches it) so the test
+    # isolates architecture, not capacity.
+    latent_params = sum(p.numel() for p in latent.parameters())
+    base_d_hidden = _match_baseline_params(vocab, args.d_emb, latent_params)
+    baseline = BaselineAR(vocab, d_emb=args.d_emb, d_hidden=base_d_hidden).to(dev)
     baseline.bos = tok.bos
     baseline.eos = tok.eos
     optL = optim.Adam(latent.parameters(), lr=1e-3)
@@ -224,6 +250,7 @@ def main():
         "T09_transformer_scale": args.max_loop,
         "params_latent": n_lat,
         "params_baseline": n_base,
+        "baseline_d_hidden": base_d_hidden,
         "val_latent_acc": accL / n,
         "val_baseline_acc": accB / n,
         "latent_by_type": byL,
