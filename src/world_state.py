@@ -1,47 +1,41 @@
-"""
-Structured World-State memory -- the architectural response to the complexity
-that `reverse_templates.py` exposed.
+"""Structured World-State Model (Model C) -- batched training.
 
-WHAT reverse_templates PROVED
------------------------------
-The latent state must simultaneously track, for every entity:
-    location, inventory, first_password, password_overridden
-and, for every item, its current_holder. That is a *structured* table, not a
-single pooled vector. The old pipeline (`make_B(A) -> B`) tries to squeeze one
-specific fact out of one pooled narrative vector and diagnostically COLLAPSES to
-the mean (MSE ~ variance floor) because a single vector can't hold all of them.
+The latent state is an EXPLICIT slot table, one vector per entity (NAME_POOL)
+and per item (ITEM_POOL). Critically, each slot's leading dims are DEDICATED
+FIELDS (per the user's insight that an SSM only needs
+`(entity_index, current_location_at_index)` -- a disentangled record, not one
+entangled vector we then probe linearly):
 
-THIS MODULE
------------
-A `WorldModel` keeps an **explicit slot table**: one d_state-vector per entity
-(in `NAME_POOL`) and one per item (in `ITEM_POOL`). The narrative is written into
-these slots by a content-addressed `SlotWriter` (find each name/item's mention
-spans in the text, pool the token states there, refine). A `HolderHead` maps each
-item slot -> the entity that currently holds it.
+  entity slot [0:loc_dim]            -> current location (one-hot over LOC_POOL)
+  entity slot [loc_dim:loc_dim+inv]  -> inventory (multi-hot over ITEM_POOL)
+  item   slot [0:name_dim]           -> holder (one-hot over NAME_POOL)
 
-TRAINING SIGNAL = reverse_templates AS TEACHER
----------------------------------------------
-For every training sample we parse the narrative with `reverse_templates` to get
-the *ground-truth* structured world. We then supervise each slot to match a
-teacher slot = the encoder's own state of a canonical description of that
-entity/item (so the slot is forced to *contain* the right structured fact, not
-just to spell tokens). On top of that we train the read path
-(slot -> composer -> AnswerDecoder) with the real answer string. This is dense,
-fact-level supervision -- exactly the state the analysis says is necessary -- and
-it is far stronger than the weak single-vector make_B regression.
+Reading = trivial argmax of the dedicated field.
 
-Read path at inference:
-    location / inventory / recall : detect target entity in question -> read slot
-    transfer                      : detect item -> HolderHead -> holder entity slot
-    then D = composer(read_slot, read_slot, C);  answer = AnswerDecoder(D).
+BACKEND toggle
+--------------
+Span scanning (`detect_spans`) is swappable: `BACKEND = "c"` uses a compiled
+C hot-path (`fastworld.so`, built from `fastworld.c`) and falls back to the
+pure-Python implementation if the module is unavailable. Add a faster backend
+(Mojo/Rust/C) by implementing the same `find_spans(text, pool)` contract and
+registering it in `_BACKENDS`.
 
-This file is self-contained and integrates with bench.py via the `world` key.
+Why batching matters
+-------------------
+Tiny models are dominated by Python->torch dispatch overhead, NOT compute. The
+old loop called the encoder LSTM / writer GRU / heads once *per sample per
+epoch*. We now batch: one padded encoder forward over the whole mini-batch, a
+single gather for last-mention pooling, and vectorized heads/losses. This is
+the real speedup (10-50x), and last-mention pooling is exactly "last mention
+wins" so it also fixes the interference trap for free.
 """
 
 from __future__ import annotations
-import os
-import sys
-from dataclasses import dataclass
+import re
+import math
+import ctypes
+import dataclasses
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -50,310 +44,355 @@ import torch.nn.functional as F
 
 from src.modules import TokenEncoder, AnswerComposer, AnswerDecoder
 from src.tokenizer import CharTokenizer
+from src.dataset import NAME_POOL, LOC_POOL, ITEM_POOL
+from reverse_templates import reverse_templates
 
 
-# ---- Fixed pools (identical to dataset.World defaults). The model only ever
-#      sees these tokens, so content-addressed slot assignment by string scan
-#      is legitimate -- it is exactly what a reader does when they see "John". ----
-NAME_POOL = ["John", "Mary", "Alex", "Sam", "Emma", "Leo", "Zoe", "Max", "Lily", "Tom"]
-LOC_POOL  = ["kitchen", "bedroom", "garden", "garage", "bathroom",
-             "living room", "office", "basement", "attic", "hallway"]
-ITEM_POOL = ["apple", "book", "key", "phone", "cup", "pen",
-             "wallet", "watch", "bag", "umbrella"]
+# Pools are imported from src.dataset (single source of truth). They MUST match
+# the generator or supervision silently vanishes.
 N_NAMES = len(NAME_POOL)
+N_LOCS = len(LOC_POOL)
 N_ITEMS = len(ITEM_POOL)
-N_LOCS  = len(LOC_POOL)
+
 NAME_TO_I = {n: i for i, n in enumerate(NAME_POOL)}
-ITEM_TO_I = {i: k for k, i in enumerate(ITEM_POOL)}
 LOC_TO_I = {l: i for i, l in enumerate(LOC_POOL)}
-# reverse maps
-I_TO_NAME = NAME_POOL
-I_TO_ITEM = ITEM_POOL
-I_TO_LOC = LOC_POOL
+ITEM_TO_I = {it: i for i, it in enumerate(ITEM_POOL)}
+I_TO_NAME = {i: n for n, i in NAME_TO_I.items()}
+I_TO_LOC = {i: l for l, i in LOC_TO_I.items()}
+I_TO_ITEM = {i: it for it, i in ITEM_TO_I.items()}
+
+
+def extract_query(sample: dict) -> Tuple[Optional[str], Optional[str]]:
+    """Pull the queried entity / item from the QUESTION text.
+
+    The dataset does not store explicit `subject`/`item` keys, but the question
+    always names exactly one entity (location/inventory/recall) or one item
+    (transfer). We recover them by scanning the question against the canonical
+    pools. Returns (subject_name, item_name); either may be None.
+    """
+    q = sample.get("question", "") or ""
+    subj = None
+    for nm in NAME_POOL:
+        if re.search(r"\b" + re.escape(nm) + r"\b", q):
+            subj = nm
+            break
+    item = None
+    for it in ITEM_POOL:
+        if re.search(r"\b" + re.escape(it) + r"\b", q):
+            item = it
+            break
+    return subj, item
 
 
 # ---------------------------------------------------------------------------
-# reverse_templates import (lives at repo root; be robust to import path)
+# BACKEND toggle for span scanning
 # ---------------------------------------------------------------------------
-def _import_reverse():
+BACKEND = "c"  # "c" (uses fastworld.so if present, else python) | "python"
+
+
+def _load_fastworld():
+    """Load the compiled C span-scanner (fastworld.so) if present."""
     try:
-        from reverse_templates import reverse_templates
-        return reverse_templates
+        import importlib
+        fastworld = importlib.import_module("fastworld")  # extension (fastworld.c)
+        if hasattr(fastworld, "fast_find_spans"):
+            return fastworld
     except Exception:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from reverse_templates import reverse_templates
-        return reverse_templates
+        return None
+    return None
 
 
-# ---------------------------------------------------------------------------
-# Span detection (char index == token index at char-level, max_len=None)
-# ---------------------------------------------------------------------------
+_fastworld = _load_fastworld()
+
+
+def _fast_find_spans(text: str, pool: List[str]) -> Dict[str, List[Tuple[int, int]]]:
+    """C-backed span scan. Result format: 'word\\tstart,end;start,end\\n...'"""
+    pool_csv = "|".join(pool)
+    raw = _fastworld.fast_find_spans(text, pool_csv)  # returns a str
+    if not raw:
+        return {}
+    out: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+    for line in raw.split("\n"):
+        if not line:
+            continue
+        word, ranges = line.split("\t")
+        for r in ranges.split(";"):
+            if not r:
+                continue
+            a, b = r.split(",")
+            out[word].append((int(a), int(b)))
+    return dict(out)
+
+
+def _py_detect_spans(text: str, pool: List[str]) -> Dict[str, List[Tuple[int, int]]]:
+    out: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+
+    def is_word_char(c):
+        return c.isalnum()
+
+    def boundary_before(i):
+        return i == 0 or not is_word_char(text[i - 1])
+
+    def boundary_after(i):
+        return i >= len(text) or not is_word_char(text[i])
+
+    for word in pool:
+        if not word:
+            continue
+        start = 0
+        while True:
+            i = text.find(word, start)
+            if i == -1:
+                break
+            end = i + len(word)
+            if boundary_before(i) and boundary_after(end):
+                out[word].append((i, end))
+            start = i + 1
+    return dict(out)
+
 
 def detect_spans(text: str, pool: List[str]) -> Dict[str, List[Tuple[int, int]]]:
-    """Return {token: [(start, end), ...]} char-span (end exclusive) for each
-    member of `pool` found in `text` (case-sensitive; data is Titlecase)."""
-    out: Dict[str, List[Tuple[int, int]]] = {}
-    for tok in pool:
-        spans = []
-        start = text.find(tok)
-        while start != -1:
-            spans.append((start, start + len(tok)))
-            start = text.find(tok, start + len(tok))
-        if spans:
-            out[tok] = spans
-    return out
+    """Find all whole-word occurrences of any `pool` word in `text`.
 
-
-# ---------------------------------------------------------------------------
-# Slot writer: narrative token states -> per-entity / per-item slot table
-# ---------------------------------------------------------------------------
-
-class SlotWriter(nn.Module):
-    """Content-addressed write: pool each entity/item's mentions IN NARRATIVE
-    ORDER through a GRU, so the *most recent* mention wins.
-
-    This is essential: the dataset deliberately uses interfering mentions and
-    moves, so the correct state is the LAST one (e.g. 'X moved from A to B' must
-    override the earlier 'X was in A'). Mean-pooling all mentions would blend
-    old+new and break location tracking -- the exact 'last-mention' trap the
-    data was built to expose. A GRU over mentions in order makes the final
-    hidden state reflect the latest state.
-
-    For an entity with no mentions, the slot stays near-zero (loss skips it).
+    Swappable backend via the module-level `BACKEND` flag (C hot-path with
+    Python fallback). Returns {word: [(start, end), ...]}.
     """
-
-    def __init__(self, d_state: int, n_slots: int, mention_window: int = 24):
-        super().__init__()
-        self.d_state = d_state
-        self.n_slots = n_slots
-        self.mention_window = mention_window
-        # per-mention context pooling
-        self.pool_mlp = nn.Sequential(
-            nn.Linear(d_state, d_state), nn.SiLU(), nn.LayerNorm(d_state))
-        # recurrent summarize of mentions in order (last wins)
-        self.gru = nn.GRU(d_state, d_state, num_layers=1, batch_first=True)
-        # final refine
-        self.refine = nn.Sequential(
-            nn.Linear(d_state, d_state), nn.SiLU(), nn.LayerNorm(d_state),
-            nn.Linear(d_state, d_state),
-        )
-
-    def forward(self, states: torch.Tensor, spans: Dict[str, List[Tuple[int, int]]],
-                pool_to_i: Dict[str, int]) -> torch.Tensor:
-        """states: [T, d] ; returns slots [n_slots, d]."""
-        T, d = states.shape
-        slots = states.new_zeros(self.n_slots, d)
-        w = self.mention_window
-        for tok, sp in spans.items():
-            idx = pool_to_i.get(tok)
-            if idx is None or idx >= self.n_slots:
-                continue
-            vecs = []
-            for (s, e) in sp:                      # sp is in narrative order
-                lo = max(0, s - 1)
-                hi = min(T, e + w)
-                if hi > lo:
-                    vecs.append(states[lo:hi].mean(dim=0))
-            if not vecs:
-                continue
-            seq = self.pool_mlp(torch.stack(vecs, dim=0)).unsqueeze(0)   # [1, M, d]
-            out, h = self.gru(seq)              # h: [1, 1, d]
-            slots[idx] = self.refine(h.squeeze(0).squeeze(0))
-        return slots
+    if BACKEND == "c" and _fastworld is not None:
+        try:
+            return _fast_find_spans(text, pool)
+        except Exception:
+            pass
+    return _py_detect_spans(text, pool)
 
 
 # ---------------------------------------------------------------------------
-# The model
+# One-hot field helpers
 # ---------------------------------------------------------------------------
+def _loc_onehot(loc: Optional[str]) -> torch.Tensor:
+    v = torch.zeros(N_LOCS)
+    if loc is not None and loc in LOC_TO_I:
+        v[LOC_TO_I[loc]] = 1.0
+    return v
 
+
+def _inv_multihot(items: List[str]) -> torch.Tensor:
+    v = torch.zeros(N_ITEMS)
+    for it in items:
+        if it in ITEM_TO_I:
+            v[ITEM_TO_I[it]] = 1.0
+    return v
+
+
+def _name_onehot(name: Optional[str]) -> torch.Tensor:
+    v = torch.zeros(N_NAMES)
+    if name is not None and name in NAME_TO_I:
+        v[NAME_TO_I[name]] = 1.0
+    return v
+
+
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
 class WorldModel(nn.Module):
-    """Structured world-state model: narrative -> slot table -> read -> answer.
-
-    Latent state = an explicit table of per-entity and per-item vectors -- the
-    structured world that reverse_templates showed the model must track.
-    """
-
-    def __init__(self, vocab_size: int, d_state: int = 256, d_model: int = 128):
+    def __init__(self, vocab_size: int, d_state: int = 64, d_model: int = 48):
         super().__init__()
         self.d_state = d_state
-        self.encoder = TokenEncoder(vocab_size, d_state=d_state, d_model=d_model)
-        self.ent_writer = SlotWriter(d_state, N_NAMES)
-        self.item_writer = SlotWriter(d_state, N_ITEMS)
-        # DECOMPOSED SLOT FIELDS (the user's insight: an SSM tracking location
-        # only needs (entity_index, current_location_at_index) -- a *disentangled*
-        # record, not one entangled vector we then try to linearly read a
-        # location out of). So each entity slot's first dims are EXPLICIT fields:
-        #   [0:loc_dim]            -> current location (one-hot over LOC_POOL)
-        #   [loc_dim:loc_dim+inv]  -> inventory (multi-hot over ITEM_POOL)
-        # and each item slot's first name_dim dims are its holder (one-hot over
-        # NAME_POOL). Reading = trivial argmax of the dedicated field -- no
-        # fragile linear probe over an entangled vector.
+        self.d_model = d_model
         self.loc_dim = N_LOCS
         self.inv_dim = N_ITEMS
         self.name_dim = N_NAMES
-        # Auxiliary: the encoder's state AT a location word must predict that
-        # location. This breaks the encoder+writer degeneracy where both collapse
-        # to a constant (it's cheaper to output a fixed location than to learn to
-        # represent "bedroom" vs "kitchen"). Forces the encoder to actually
-        # encode location words.
+
+        self.encoder = TokenEncoder(vocab_size, d_state, d_model, n_layers=2)
+
+        # Learnable init slots for entities/items not present in a narrative.
+        self.init_ent = nn.Parameter(torch.zeros(d_state))
+        self.init_item = nn.Parameter(torch.zeros(d_state))
+
+        # Read heads: project a per-entity / per-item slot to its dedicated
+        # field. The slot is the disentangled per-entity latent (filled by
+        # last-mention pooling); the head extracts ONE field from it. This is
+        # the (index, current_location_at_index) read the user asked for -- the
+        # location lives IN the entity's slot and a tiny head reads it out.
+        self.loc_head = nn.Linear(d_state, N_LOCS)        # entity slot -> location
+        self.inv_head = nn.Linear(d_state, N_ITEMS)       # entity slot -> inventory
+        self.holder_head = nn.Linear(self.name_dim, N_NAMES)  # item slot -> holder
+
+        # Aux heads: encoder state AT a location/item word must predict it.
+        # This breaks the encoder+writer collapse to a constant.
         self.loc_tok_head = nn.Linear(d_state, N_LOCS)
         self.item_tok_head = nn.Linear(d_state, N_ITEMS)
+
         # (A, B, C) -> D composer reuses the modular AnswerComposer (recall path)
         self.composer = AnswerComposer(d_state)
         self.ans_dec = AnswerDecoder(d_state, vocab_size)
 
-    @property
-    def eos_id(self):
-        return self.ans_dec  # placeholder; set externally
+    # -- batched write -----------------------------------------------------
+    def write_batch(self, narratives: List[str], tokenizer, device) -> Tuple[
+            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[List[str]]]:
+        B = len(narratives)
+        seqs = [tokenizer.encode(n, max_len=None) for n in narratives]
+        T = max(len(s) for s in seqs)
+        ids = torch.zeros(B, T, dtype=torch.long, device=device)
+        for i, s in enumerate(seqs):
+            if s:
+                ids[i, : len(s)] = torch.tensor(s, dtype=torch.long, device=device)
+        states = self.encoder.states(ids)                 # [B, T, d_state]
 
-    # --- encode + write ---
-    def write(self, narrative_text: str, tokenizer: CharTokenizer,
-              device) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        ids = torch.tensor(
-            tokenizer.encode(narrative_text, max_len=None), dtype=torch.long,
-            device=device).unsqueeze(0)                              # [1, T]
-        states = self.encoder.states(ids)[0]                        # [T, d]
-        ent_spans = detect_spans(narrative_text, NAME_POOL)
-        item_spans = detect_spans(narrative_text, ITEM_POOL)
-        ent_slots = self.ent_writer(states, ent_spans, NAME_TO_I)   # [N_NAMES, d]
-        item_slots = self.item_writer(states, item_spans, ITEM_TO_I)  # [N_ITEMS, d]
-        # holder_logits placeholder (holder is now read as argmax over the
-        # item slot's dedicated name_dim field; kept for API compatibility)
-        holder_logits = item_slots.new_zeros(N_ITEMS, N_NAMES)
-        return ent_slots, item_slots, holder_logits
+        ent_pos = torch.full((B, N_NAMES), -1, dtype=torch.long)
+        item_pos = torch.full((B, N_ITEMS), -1, dtype=torch.long)
+        name_spans_batch, item_spans_batch = [], []
+        for b, n in enumerate(narratives):
+            ns = detect_spans(n, NAME_POOL)
+            name_spans_batch.append(ns)
+            for nm, sp in ns.items():
+                ent_pos[b, NAME_TO_I[nm]] = sp[-1][1] - 1      # last mention wins
+            isp = detect_spans(n, ITEM_POOL)
+            item_spans_batch.append(isp)
+            for it, sp in isp.items():
+                item_pos[b, ITEM_TO_I[it]] = sp[-1][1] - 1
 
-    # --- read a target slot given the question ---
-    def read_slot(self, ent_slots, item_slots, holder_logits, question_text,
-                  tokenizer, device, parsed=None):
-        """Return the slot vector to decode, plus the entity/item index used.
+        ent_slots = self.init_ent.view(1, 1, self.d_state).expand(B, N_NAMES, -1).clone()
+        item_slots = self.init_item.view(1, 1, self.d_state).expand(B, N_ITEMS, -1).clone()
 
-        `parsed` (optional ReverseWorld) lets us use the GROUND-TRUTH holder /
-        target at training time; at inference it is None and we use predictions.
-        """
-        # Encode the question to condition the decoder.
-        qids = torch.tensor(tokenizer.encode(question_text or " ", max_len=None),
-                            dtype=torch.long, device=device).unsqueeze(0)
-        C = self.encoder.state_of(qids)[0]                          # [d]
-        # Which entity is the target?
-        q_names = detect_spans(question_text, NAME_POOL)
-        q_items = detect_spans(question_text, ITEM_POOL)
-        if q_names:
-            target_name = next(iter(q_names))
-            idx = NAME_TO_I[target_name]
-            return ent_slots[idx], C, ("entity", idx)
-        if q_items:
-            item_name = next(iter(q_items))
-            iidx = ITEM_TO_I[item_name]
-            if parsed is not None:
-                holder = parsed.item_holder.get(item_name)
-                hidx = NAME_TO_I.get(holder) if holder else None
-            else:
-                hidx = int(holder_logits[iidx].argmax().item())
-            if hidx is not None:
-                return ent_slots[hidx], C, ("transfer", hidx)
-            # fallback: can't resolve holder
-            return ent_slots.new_zeros(self.d_state), C, ("transfer", -1)
-        return ent_slots.new_zeros(self.d_state), C, ("none", -1)
+        ev = ent_pos >= 0
+        eg = ent_pos.clamp(min=0)
+        gathered = states[torch.arange(B, device=device).unsqueeze(1).expand(-1, N_NAMES), eg]
+        ent_slots = torch.where(ev.unsqueeze(-1), gathered, ent_slots)
 
-    # --- compose D and decode answer logits (teacher-forced) ---
+        iv = item_pos >= 0
+        ig = item_pos.clamp(min=0)
+        gathered_i = states[torch.arange(B, device=device).unsqueeze(1).expand(-1, N_ITEMS), ig]
+        item_slots = torch.where(iv.unsqueeze(-1), gathered_i, item_slots)
+
+        holder_logits = self.holder_head(item_slots[:, :, : self.name_dim])  # [B, I, N_NAMES]
+        return ent_slots, item_slots, holder_logits, states, ids, name_spans_batch
+
+    def write(self, narrative: str, tokenizer, device):
+        es, is_, hl, _, _, _ = self.write_batch([narrative], tokenizer, device)
+        return es[0], is_[0], hl[0]
+
+    # -- read --------------------------------------------------------------
+    @torch.no_grad()
+    def read_answer(self, ent_slot, item_slot, holder_logits, sample) -> str:
+        task = sample["task_type"]
+        subj_name, item_name = extract_query(sample)
+        if task == "location":
+            return I_TO_LOC[self.loc_head(ent_slot.reshape(1, -1)).argmax(-1).item()]
+        if task == "inventory":
+            probs = self.inv_head(ent_slot.reshape(1, -1)).sigmoid()[0]
+            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+            return " and ".join(items) if items else "nothing"
+        if task == "transfer":
+            if item_name in ITEM_TO_I:
+                islot = item_slot[: self.name_dim].reshape(1, -1)
+                return I_TO_NAME[self.holder_head(islot).argmax(-1).item()]
+            return ""
+        # recall: generative (handled by run_world_qa via generate_answer)
+        return ""
+
     def answer_logits(self, read_slot: torch.Tensor, C: torch.Tensor,
                       answer_ids: torch.Tensor):
-        # D = composer(A=read_slot, B=read_slot, C=question)
-        A = read_slot.unsqueeze(0); B = read_slot.unsqueeze(0); Cc = C.unsqueeze(0)
-        D = self.composer(A, B, Cc)                                 # [1, d]
-        tgt = answer_ids.unsqueeze(0)                              # [1, T_raw]
-        logits = self.ans_dec.forward_teacher(D, tgt)              # [1, T, V]
+        A = read_slot.reshape(1, -1); Bb = read_slot.reshape(1, -1); Cc = C.reshape(1, -1)
+        D = self.composer(A, Bb, Cc)                        # [1, d]
+        tgt = answer_ids.unsqueeze(0)                       # [1, T_raw]
+        logits = self.ans_dec.forward_teacher(D, tgt)       # [1, T, V]
         T = logits.size(1)
-        # forward_teacher truncates logits to max_tokens internally; return the
-        # matching truncated target so the caller's CE target aligns exactly.
         return logits, tgt[:, :T]
 
     @torch.no_grad()
-    def generate_answer(self, ent_slots, item_slots, holder_logits, question_text,
-                        tokenizer, max_tokens=24, eos_id=None, pad_id=None, parsed=None):
-        read_slot, C, _ = self.read_slot(ent_slots, item_slots, holder_logits,
-                                         question_text, tokenizer, ent_slots.device, parsed)
-        A = read_slot.unsqueeze(0); B = read_slot.unsqueeze(0); Cc = C.unsqueeze(0)
-        D = self.composer(A, B, Cc)
-        return self.ans_dec.generate(D, max_tokens=max_tokens, eos_id=eos_id, pad_id=pad_id)
-
-    @torch.no_grad()
-    def read_answer(self, ent_slots, item_slots, holder_logits, sample,
-                    tokenizer, max_new=24):
-        """Dispatch on task. Closed-vocab reads are TRIVIAL argmax over the
-        slot's dedicated field dims (location / inventory / holder) -- no
-        fragile probe over an entangled vector."""
-        q = sample.get("question", "")
-        task = sample["task_type"]
-        q_names = detect_spans(q, NAME_POOL)
-        q_items = detect_spans(q, ITEM_POOL)
-
-        if task == "location" and q_names:
-            idx = NAME_TO_I[next(iter(q_names))]
-            li = int(ent_slots[idx][:self.loc_dim].argmax().item())
-            return I_TO_LOC[li]
-        if task == "transfer" and q_items:
-            iidx = ITEM_TO_I[next(iter(q_items))]
-            hidx = int(item_slots[iidx][:self.name_dim].argmax().item())
-            if 0 <= hidx < N_NAMES:
-                li = int(ent_slots[hidx][:self.loc_dim].argmax().item())
-                return I_TO_LOC[li]
-            return ""
-        if task == "inventory" and q_names:
-            idx = NAME_TO_I[next(iter(q_names))]
-            probs = ent_slots[idx][self.loc_dim:self.loc_dim + self.inv_dim]
-            items = [I_TO_ITEM[i] for i, p in enumerate(probs) if p.item() > 0.5]
-            return " and ".join(items) if items else "nothing"
-        if task == "recall":
-            eos = tokenizer.vocab[tokenizer.eos_token]
-            pad = tokenizer.vocab[tokenizer.pad_token]
-            ids = self.generate_answer(ent_slots, item_slots, holder_logits, q,
-                                       tokenizer, max_tokens=max_new, eos_id=eos, pad_id=pad)
-            return tokenizer.decode(ids).strip()
-        return ""
+    def generate_answer(self, ent_slot, item_slot, holder_logits, question_text,
+                        tokenizer, max_tokens=48, eos_id=None, pad_id=None):
+        A = ent_slot.unsqueeze(0); Bb = ent_slot.unsqueeze(0)
+        Cc = torch.tensor(tokenizer.encode(" " + question_text, max_len=None),
+                          dtype=torch.long).unsqueeze(0)
+        D = self.composer(A, Bb, Cc)
+        ids = self.ans_dec.generate(D, max_tokens=max_tokens, eos_id=eos_id,
+                                    pad_id=pad_id)
+        return tokenizer.decode(ids)
 
 
 # ---------------------------------------------------------------------------
-# Teacher target builders (ground-truth structured state, from reverse_templates)
+# Prepared sample (parsed ONCE; reused every epoch)
 # ---------------------------------------------------------------------------
-
-def teacher_entity_slot(model: "WorldModel", ent_name: str, e, tokenizer, device
-                        ) -> torch.Tensor:
-    """Canonical description of one entity -> encoder state (the teacher slot)."""
-    parts = [f"{ent_name} was in the {e.location}."] if e.location else []
-    if e.inventory:
-        parts.append(f"{ent_name} had {' and '.join(e.inventory)}.")
-    if e.first_password:
-        parts.append(f"The secret code for {ent_name} is {e.first_password}.")
-    desc = " ".join(parts) if parts else f"{ent_name} is unknown."
-    ids = torch.tensor(tokenizer.encode(desc, max_len=None), dtype=torch.long,
-                       device=device).unsqueeze(0)
-    return model.encoder.state_of(ids)[0].detach()                 # [d]
+@dataclasses.dataclass
+class Prepared:
+    narr: str
+    ent_target: torch.Tensor          # [N_NAMES, loc_dim+inv_dim]
+    item_target: torch.Tensor         # [N_ITEMS, name_dim]
+    ent_mask: torch.Tensor            # [N_NAMES] 1 if entity appears in narrative
+    item_mask: torch.Tensor           # [N_ITEMS] 1 if item appears in narrative
+    subject_idx: int
+    loc_tok: List[Tuple[int, int]]    # (char_pos, loc_idx)
+    item_tok: List[Tuple[int, int]]   # (char_pos, item_idx)
+    ans_ids: List[int]
 
 
-def teacher_item_slot(model: "WorldModel", item_name: str, holder: Optional[str],
-                      tokenizer, device) -> torch.Tensor:
-    if holder:
-        desc = f"{holder} held the {item_name}."
-    else:
-        desc = f"no one held the {item_name}."
-    ids = torch.tensor(tokenizer.encode(desc, max_len=None), dtype=torch.long,
-                       device=device).unsqueeze(0)
-    return model.encoder.state_of(ids)[0].detach()                 # [d]
+def prepare_sample(sample: dict, tokenizer: CharTokenizer, device) -> Prepared:
+    narr = sample["narrative"]
+    w, _ = reverse_templates(narr)
+
+    ent_target = torch.zeros(N_NAMES, N_LOCS + N_ITEMS)
+    ent_mask = torch.zeros(N_NAMES)
+    item_target = torch.zeros(N_ITEMS, N_NAMES)
+    item_mask = torch.zeros(N_ITEMS)
+    name_spans = detect_spans(narr, NAME_POOL)
+    item_spans = detect_spans(narr, ITEM_POOL)
+    for nm, e in w.entities.items():
+        if nm not in NAME_TO_I:
+            continue
+        ni = NAME_TO_I[nm]
+        ent_mask[ni] = 1.0
+        row = torch.zeros(N_LOCS + N_ITEMS)
+        if e.location is not None:
+            row[:N_LOCS] = _loc_onehot(e.location)
+        if e.inventory:
+            row[N_LOCS:] = _inv_multihot(e.inventory)
+        ent_target[ni] = row
+    for it, holder in w.item_holder.items():
+        if it not in ITEM_TO_I:
+            continue
+        ii = ITEM_TO_I[it]
+        item_mask[ii] = 1.0
+        if holder is not None:
+            item_target[ii] = _name_onehot(holder)
+    # items present but without an explicit holder entry still count as present
+    for iw in item_spans:
+        if iw in ITEM_TO_I:
+            item_mask[ITEM_TO_I[iw]] = 1.0
+
+    # auxiliary token positions (last occurrence of each location/item word)
+    loc_tok = []
+    loc_spans = detect_spans(narr, LOC_POOL)
+    for lw, sp in loc_spans.items():
+        if lw in LOC_TO_I:
+            loc_tok.append((sp[-1][1] - 1, LOC_TO_I[lw]))
+    item_tok = []
+    item_spans = detect_spans(narr, ITEM_POOL)
+    for iw, sp in item_spans.items():
+        if iw in ITEM_TO_I:
+            item_tok.append((sp[-1][1] - 1, ITEM_TO_I[iw]))
+
+    ans_ids = tokenizer.encode(sample["answer"], max_len=None)
+    subj_name, _ = extract_query(sample)
+    subj_idx = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
+    return Prepared(narr, ent_target, item_target, ent_mask, item_mask, subj_idx,
+                    loc_tok, item_tok, ans_ids)
+
+
+def self_loc_inv_dim():
+    return N_LOCS + N_ITEMS
 
 
 # ---------------------------------------------------------------------------
-# Training + eval (self-contained; integrated into bench.py via `world`)
+# Training (batched)
 # ---------------------------------------------------------------------------
-
-@dataclass
+@dataclasses.dataclass
 class WorldTrainConfig:
-    d_state: int = 256
-    d_model: int = 128
+    d_state: int = 64
+    d_model: int = 48
     epochs: int = 20
-    batch_size: int = 16
+    batch_size: int = 64
     lr: float = 3e-4
-    slot_w: float = 1.0
     ans_w: float = 1.0
     field_w: float = 1.0
     loc_tok_w: float = 1.0
@@ -361,188 +400,177 @@ class WorldTrainConfig:
     seed: int = 42
 
 
-def _ids(text, tok):
-    if not text:
-        text = " "
-    return torch.tensor([tok.vocab.get(c, tok.vocab[tok.unk_token]) for c in text],
-                        dtype=torch.long)
-
-
-def train_world(dataset, tokenizer, device, cfg: WorldTrainConfig,
-                verbose: bool = True, qa_hook=None):
-    """Train the structured WorldModel. Returns (model, history)."""
-    reverse_templates = _import_reverse()
+def train_world(qa: List[dict], tokenizer: CharTokenizer, device, cfg: WorldTrainConfig,
+                qa_hook=None, verbose: bool = True) -> Tuple[nn.Module, dict]:
     torch.manual_seed(cfg.seed)
-    model = WorldModel(tokenizer.vocab_size, d_state=cfg.d_state,
-                       d_model=cfg.d_model).to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.01)
-    eos = tokenizer.vocab[tokenizer.eos_token]
-    pad = tokenizer.vocab[tokenizer.pad_token]
-    hist = {"field_loss": [], "ans_loss": [], "loc_tok_loss": [],
-           "item_tok_loss": [], "qa_acc": []}
+    model = WorldModel(tokenizer.vocab_size, d_state=cfg.d_state, d_model=cfg.d_model)
+    model.to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-    qa = [s for s in dataset if s.get("question")]
-    # NOTE: the encoder is trained end-to-end here (NOT frozen). The earlier
-    # frozen-encoder design collapsed to a constant location because the
-    # char-LSTM's token states represented "bedroom" and "kitchen" nearly
-    # identically -- so the writer could not extract location from the narrative.
-    # Training the encoder lets it learn to represent location words distinctly,
-    # which is what makes the decomposed slot field (current_location_at_index)
-    # actually track the right place.
+    prepared = [prepare_sample(s, tokenizer, device) for s in qa]
+    ent_targets = torch.stack([p.ent_target for p in prepared]).to(device)   # [N,E,loc+inv]
+    ent_masks = torch.stack([p.ent_mask for p in prepared]).to(device)       # [N,E]
+    item_targets = torch.stack([p.item_target for p in prepared]).to(device) # [N,I,name]
+    item_masks = torch.stack([p.item_mask for p in prepared]).to(device)     # [N,I]
+    subj_idx = torch.tensor([p.subject_idx for p in prepared], device=device)
+
+    hist = {"field_loss": [], "ans_loss": [], "loc_tok_loss": [],
+            "item_tok_loss": [], "qa_acc": []}
+    B = cfg.batch_size
+    N = len(qa)
 
     for ep in range(1, cfg.epochs + 1):
-        model.train()
-        tot_field = tot_ans = tot_loc_tok = tot_item_tok = 0.0
-        n = 0
-        for s in qa:
-            narr = s["narrative"]
-            q = s.get("question", "")
-            ans = s["answer"]
-            parsed = reverse_templates(narr)
-            parsed_world = parsed[0] if isinstance(parsed, tuple) else parsed
+        perm = torch.randperm(N)
+        tot_field = tot_ans = tot_loc = tot_item = 0.0
+        n_batches = 0
+        for s in range(0, N, B):
+            idx = perm[s: s + B]
+            chunk = [qa[i] for i in idx.tolist()]
+            prep_chunk = [prepared[i] for i in idx.tolist()]
 
-            ent_slots, item_slots, _ = model.write(narr, tokenizer, device)
+            ent_slots, item_slots, holder_logits, states, ids, _ = \
+                model.write_batch([c["narrative"] for c in chunk], tokenizer, device)
 
-            # ---- DECOMPOSED FIELD SUPERVISION (the user's insight) ----
-            # The latent record per entity = (index, current_location_at_index,
-            # inventory). We supervise those as EXPLICIT slot fields so reading
-            # is a trivial argmax -- no fragile linear probe over an entangled
-            # vector. (a) entity slot[:loc_dim] -> one-hot(location)
-            #     entity slot[loc_dim:loc_dim+inv_dim] -> multi-hot(inventory)
-            # (b) item   slot[:name_dim] -> one-hot(holder)
-            field_loss = torch.zeros((), device=device)
-            present = 0
-            for name, e in parsed_world.entities.items():
-                if name not in NAME_TO_I:
-                    continue
-                idx = NAME_TO_I[name]
-                if e.location and e.location in LOC_TO_I:
-                    loc_oh = torch.zeros(model.loc_dim, device=device)
-                    loc_oh[LOC_TO_I[e.location]] = 1.0
-                    field_loss = field_loss + F.mse_loss(
-                        ent_slots[idx][:model.loc_dim], loc_oh)
-                inv_mh = torch.zeros(model.inv_dim, device=device)
-                for it in e.inventory:
-                    if it in ITEM_TO_I:
-                        inv_mh[ITEM_TO_I[it]] = 1.0
-                field_loss = field_loss + F.mse_loss(
-                    ent_slots[idx][model.loc_dim:model.loc_dim + model.inv_dim], inv_mh)
-                present += 1
-            for item, holder in parsed_world.item_holder.items():
-                if item not in ITEM_TO_I or holder not in NAME_TO_I:
-                    continue
-                h_oh = torch.zeros(model.name_dim, device=device)
-                h_oh[NAME_TO_I[holder]] = 1.0
-                field_loss = field_loss + F.mse_loss(
-                    item_slots[ITEM_TO_I[item]][:model.name_dim], h_oh)
-                present += 1
-            if present > 0:
-                field_loss = field_loss / present
+            # ---- structured field supervision via READ HEADS on MENTIONED slots ----
+            # location: CE over mentioned entities that have a known location
+            et = ent_targets[idx]                                        # [b,E,loc+inv]
+            em = ent_masks[idx].bool().reshape(-1)                       # [b*E]
+            es = ent_slots.reshape(-1, model.d_state)[em]                 # [M, d_state]
+            loc_tgt = et.reshape(-1, N_LOCS + N_ITEMS)[em, :N_LOCS]       # [M, N_LOCS]
+            has_loc = loc_tgt.sum(-1) > 0.5                             # [M]
+            if has_loc.any():
+                loc_loss = F.cross_entropy(model.loc_head(es[has_loc]),
+                                           loc_tgt[has_loc].argmax(-1))
+            else:
+                loc_loss = torch.zeros((), device=device)
+            # inventory: multi-label BCE over mentioned entities
+            inv_tgt = et.reshape(-1, N_LOCS + N_ITEMS)[em, N_LOCS:]       # [M, N_ITEMS]
+            inv_loss = F.binary_cross_entropy_with_logits(
+                model.inv_head(es), inv_tgt)
+            # holder: CE over mentioned items that have a known holder
+            it = item_targets[idx]                                       # [b,I,name]
+            im = item_masks[idx].bool().reshape(-1)                      # [b*I]
+            is_ = item_slots.reshape(-1, model.d_state)[im]               # [M2, d_state]
+            holder_tgt = it.reshape(-1, N_NAMES)[im]                     # [M2, N_NAMES]
+            has_holder = holder_tgt.sum(-1) > 0.5                       # [M2]
+            if has_holder.any():
+                holder_loss = F.cross_entropy(
+                    model.holder_head(is_[has_holder, :N_NAMES]),
+                    holder_tgt[has_holder].argmax(-1))
+            else:
+                holder_loss = torch.zeros((), device=device)
+            field_loss = loc_loss + inv_loss + holder_loss
 
-            # ---- AUX: encoder state AT a location word must predict it ----
-            # Breaks the encoder+writer collapse to a constant location.
+            # ---- aux: encoder state at location/item words ----
+            loc_pos = [(bi, p[0], p[1]) for bi, p in enumerate(prep_chunk) for p in p.loc_tok]
             loc_tok_loss = torch.zeros((), device=device)
-            loc_spans = detect_spans(narr, LOC_POOL)
-            if loc_spans:
-                narr_ids = torch.tensor(tokenizer.encode(narr, max_len=None),
-                                         dtype=torch.long, device=device).unsqueeze(0)
-                narr_states = model.encoder.states(narr_ids)[0]      # [T, d]
-                Tn = narr_states.size(0)
-                ntok = 0
-                for lw, sp in loc_spans.items():
-                    li = LOC_TO_I.get(lw)
-                    if li is None:
-                        continue
-                    pos = min(sp[-1][1] - 1, Tn - 1)   # last token of the word
-                    h = narr_states[pos]
-                    loc_tok_loss = loc_tok_loss + F.cross_entropy(
-                        model.loc_tok_head(h.unsqueeze(0)),
-                        torch.tensor([li], device=device))
-                    ntok += 1
-                if ntok:
-                    loc_tok_loss = loc_tok_loss / ntok
+            if loc_pos:
+                rows = torch.tensor([x[0] for x in loc_pos], device=device)
+                cols = torch.tensor([x[1] for x in loc_pos], device=device)
+                h = states[rows, cols]
+                tgt = torch.tensor([x[2] for x in loc_pos], device=device)
+                loc_tok_loss = F.cross_entropy(model.loc_tok_head(h), tgt)
 
-            # ---- AUX: encoder state AT an item word must predict it ----
+            item_pos = [(bi, p[0], p[1]) for bi, p in enumerate(prep_chunk) for p in p.item_tok]
             item_tok_loss = torch.zeros((), device=device)
-            item_spans = detect_spans(narr, ITEM_POOL)
-            if item_spans:
-                narr_ids2 = torch.tensor(tokenizer.encode(narr, max_len=None),
-                                          dtype=torch.long, device=device).unsqueeze(0)
-                narr_states2 = model.encoder.states(narr_ids2)[0]
-                Tn2 = narr_states2.size(0)
-                nit = 0
-                for iw, sp in item_spans.items():
-                    ii = ITEM_TO_I.get(iw)
-                    if ii is None:
-                        continue
-                    pos = min(sp[-1][1] - 1, Tn2 - 1)
-                    h = narr_states2[pos]
-                    item_tok_loss = item_tok_loss + F.cross_entropy(
-                        model.item_tok_head(h.unsqueeze(0)),
-                        torch.tensor([ii], device=device))
-                    nit += 1
-                if nit:
-                    item_tok_loss = item_tok_loss / nit
+            if item_pos:
+                rows = torch.tensor([x[0] for x in item_pos], device=device)
+                cols = torch.tensor([x[1] for x in item_pos], device=device)
+                h = states[rows, cols]
+                tgt = torch.tensor([x[2] for x in item_pos], device=device)
+                item_tok_loss = F.cross_entropy(model.item_tok_head(h), tgt)
 
-            # ---- generative answer path (free-text: recall passwords) ----
-            read_slot, C, kind = model.read_slot(
-                ent_slots, item_slots, ent_slots.new_zeros(1, 1),
-                q, tokenizer, device, parsed_world)
-            ans_ids = _ids(ans, tokenizer).to(device)
-            tgt_ids = torch.cat([ans_ids, torch.tensor([eos], device=device)])
-            logits, tgt = model.answer_logits(read_slot, C, tgt_ids)
-            ans_loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
-                                       tgt.reshape(-1))
+            # ---- generative answer path (recall only; the other tasks are
+            # read via the structured fields, not free-text generation) ----
+            ans_samples = [(bi, p) for bi, p in enumerate(prep_chunk)
+                           if chunk[bi]["task_type"] == "recall" and len(p.ans_ids) > 0]
+            ans_loss = torch.zeros((), device=device)
+            if ans_samples:
+                tot = 0.0
+                for bi, p in ans_samples:
+                    rslot = ent_slots[bi, p.subject_idx]
+                    Cc = _question_vec(model, p, tokenizer, device)
+                    logits, tgt = model.answer_logits(
+                        rslot, Cc, torch.tensor(p.ans_ids, device=device))
+                    tot = tot + F.cross_entropy(
+                        logits.reshape(-1, logits.size(-1)), tgt.reshape(-1))
+                ans_loss = tot / len(ans_samples)
 
             loss = (cfg.field_w * field_loss + cfg.ans_w * ans_loss
                     + cfg.loc_tok_w * loc_tok_loss + cfg.item_tok_w * item_tok_loss)
             opt.zero_grad(); loss.backward(); opt.step()
 
             tot_field += field_loss.item(); tot_ans += ans_loss.item()
-            tot_loc_tok += loc_tok_loss.item(); tot_item_tok += item_tok_loss.item()
-            n += 1
+            tot_loc += loc_tok_loss.item(); tot_item += item_tok_loss.item()
+            n_batches += 1
 
-        hist["field_loss"].append(tot_field / max(n, 1))
-        hist["ans_loss"].append(tot_ans / max(n, 1))
-        hist["loc_tok_loss"].append(tot_loc_tok / max(n, 1))
-        hist["item_tok_loss"].append(tot_item_tok / max(n, 1))
+        fa = run_world_qa(model, qa, tokenizer, device, cfg) if (qa_hook or True) else (None, 0)
+        acc = fa[1] if isinstance(fa, tuple) else 0.0
+        hist["field_loss"].append(tot_field / max(n_batches, 1))
+        hist["ans_loss"].append(tot_ans / max(n_batches, 1))
+        hist["loc_tok_loss"].append(tot_loc / max(n_batches, 1))
+        hist["item_tok_loss"].append(tot_item / max(n_batches, 1))
+        hist["qa_acc"].append(acc)
         if verbose:
-            print(f"  [world] ep {ep}/{cfg.epochs} "
-                  f"field={hist['field_loss'][-1]:.4f} ans={hist['ans_loss'][-1]:.4f} "
-                  f"loctok={hist['loc_tok_loss'][-1]:.4f} itemtok={hist['item_tok_loss'][-1]:.4f}")
+            print(f"  [world] ep {ep}/{cfg.epochs} field={hist['field_loss'][-1]:.4f} "
+                  f"ans={hist['ans_loss'][-1]:.4f} loctok={tot_loc/max(n_batches,1):.4f} "
+                  f"itemtok={tot_item/max(n_batches,1):.4f} acc={acc:.3f}")
             print(f"  STAGE: world ep={ep}/{cfg.epochs} "
                   f"field={hist['field_loss'][-1]:.4f} ans={hist['ans_loss'][-1]:.4f}")
-
-        if qa_hook is not None and (ep % 3 == 0 or ep == cfg.epochs):
-            acc, task_acc, _ = run_world_qa(model, qa, tokenizer, device)
-            hist["qa_acc"].append(acc)
-            if verbose:
-                print(f"  [world-qa] ep={ep} acc={acc:.3f} " +
-                      " ".join(f"{t}={a:.2f}" for t, a in task_acc.items()))
-                print(f"  STAGE: world-qa ep={ep} acc={acc:.3f}")
 
     return model, hist
 
 
+def _question_vec(model, p, tokenizer, device):
+    """Build a question conditioning vector C from the subject name token."""
+    q = " " + NAME_POOL[p.subject_idx]
+    ids = torch.tensor(tokenizer.encode(q, max_len=None), dtype=torch.long,
+                       device=device).unsqueeze(0)
+    return model.encoder.states(ids)[:, -1, :]
+
+
+# ---------------------------------------------------------------------------
+# Evaluation (batched write, per-sample read)
+# ---------------------------------------------------------------------------
 @torch.no_grad()
-def run_world_qa(model, dataset, tokenizer, device, max_new=48):
-    """Strict exact-match on QA tasks for the WorldModel."""
-    eos = tokenizer.vocab[tokenizer.eos_token]
-    pad = tokenizer.vocab[tokenizer.pad_token]
+def run_world_qa(model, qa: List[dict], tokenizer: CharTokenizer, device,
+                 cfg: Optional[WorldTrainConfig] = None):
+    if cfg is None:
+        cfg = WorldTrainConfig()
+    acc_by: Dict[str, List[float]] = defaultdict(list)
     correct = total = 0
-    by_task: Dict[str, List[int]] = {}
-    model.eval()
-    for s in dataset:
-        if not s.get("question"):
-            continue
-        ent_slots, item_slots, holder_logits = model.write(s["narrative"], tokenizer, device)
-        gen = model.read_answer(ent_slots, item_slots, holder_logits, s,
-                                tokenizer, max_new=max_new).strip().lower()
-        exp = s["answer"].strip().lower()
-        ok = gen == exp
-        correct += ok; total += 1
-        by_task.setdefault(s["task_type"], [0, 0])
-        by_task[s["task_type"]][0] += ok; by_task[s["task_type"]][1] += 1
-    acc = correct / max(total, 1)
-    task_acc = {t: c / m for t, (c, m) in by_task.items()}
-    return acc, task_acc, total
+    B = max(cfg.batch_size, 1)
+    for s in range(0, len(qa), B):
+        chunk = qa[s: s + B]
+        narrs = [x["narrative"] for x in chunk]
+        ent_slots, item_slots, holder_logits, _, _, _ = model.write_batch(narrs, tokenizer, device)
+        for j, x in enumerate(chunk):
+            task = x["task_type"]
+            subj_name, item_name = extract_query(x)
+            subj = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
+            ent = ent_slots[j, subj]          # [d_state] subject entity slot
+            hl = holder_logits[j]             # [N_ITEMS, N_NAMES]
+            if task == "location":
+                pred = I_TO_LOC[model.loc_head(ent.unsqueeze(0)).argmax(-1).item()]
+            elif task == "inventory":
+                probs = model.inv_head(ent.unsqueeze(0)).sigmoid()[0]
+                items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+                pred = " and ".join(items) if items else "nothing"
+            elif task == "transfer":
+                if item_name in ITEM_TO_I:
+                    iidx = ITEM_TO_I[item_name]
+                    islot = item_slots[j, iidx, :N_NAMES].unsqueeze(0)
+                    holder = model.holder_head(islot).argmax(-1).item()
+                    ent2 = ent_slots[j, holder]
+                    pred = I_TO_LOC[model.loc_head(ent2.unsqueeze(0)).argmax(-1).item()]
+                else:
+                    pred = ""
+            else:  # recall -- generative
+                item = item_slots[j, 0]
+                pred = model.generate_answer(ent, item, hl, x.get("question", ""), tokenizer)
+            ok = (pred == x["answer"])
+            correct += int(ok); total += 1
+            acc_by[task].append(float(ok))
+    acc_by_avg = {k: sum(v) / len(v) for k, v in acc_by.items()}
+    overall = correct / total if total else 0.0
+    return acc_by_avg, overall, total

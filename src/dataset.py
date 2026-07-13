@@ -43,6 +43,18 @@ FILLER = [
 ANSWER_LABEL = "Answer:"
 
 
+# ---------------------------------------------------------------------------
+# Canonical pools (single source of truth). Imported by the world-state model
+# so the latent model tracks exactly the entities/items/locations the generator
+# actually uses (a mismatch here silently zeroes out all supervision).
+# ---------------------------------------------------------------------------
+NAME_POOL = ["John", "Mary", "Alex", "Sam", "Emma", "Leo", "Zoe", "Max", "Lily", "Tom"]
+LOC_POOL = ["kitchen", "bedroom", "garden", "garage", "bathroom",
+            "living room", "office", "basement", "attic", "hallway"]
+ITEM_POOL = ["apple", "book", "key", "phone", "cup", "pen",
+             "wallet", "watch", "bag", "umbrella"]
+
+
 def _interference_sentence(world) -> str:
     """Distractor that mentions a REAL entity/location to create interference."""
     name = random.choice(list(world.entities.keys()))
@@ -74,18 +86,9 @@ class World:
     names: List[str] = field(default_factory=list)
 
     def __init__(self, names=None, locations=None, items=None):
-        self.locations = locations or [
-            "kitchen", "bedroom", "garden", "garage", "bathroom",
-            "living room", "office", "basement", "attic", "hallway"
-        ]
-        self.items = items or [
-            "apple", "book", "key", "phone", "cup", "pen",
-            "wallet", "watch", "bag", "umbrella"
-        ]
-        self.names = names or [
-            "John", "Mary", "Alex", "Sam", "Emma", "Leo",
-            "Zoe", "Max", "Lily", "Tom"
-        ]
+        self.locations = locations or LOC_POOL
+        self.items = items or ITEM_POOL
+        self.names = names or NAME_POOL
         self.entities = {}
         self.history = []
         self._init_world()

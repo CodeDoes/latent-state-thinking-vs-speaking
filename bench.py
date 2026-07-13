@@ -201,7 +201,7 @@ def run_one_world(key: str, args, dataset, device) -> dict:
 
     qa = [s for s in dataset if s.get("question")]
     acc, task_acc, n = run_world_qa(model, qa, tokenizer, device)
-    final_val = hist["slot_loss"][-1] if hist["slot_loss"] else None
+    final_val = hist["field_loss"][-1] if hist["field_loss"] else None
     low_but_useless = bool(final_val is not None and final_val < 2.0 and acc < 0.5)
     samples = []
     for s in qa[:6]:

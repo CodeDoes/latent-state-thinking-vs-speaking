@@ -26,7 +26,10 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 from src.dataset import generate_dataset
 from src.tokenizer import CharTokenizer
-from src.world_state import WorldTrainConfig, train_world, run_world_qa
+from src.world_state import (WorldTrainConfig, train_world, run_world_qa,
+                            NAME_TO_I, NAME_POOL, I_TO_LOC, I_TO_ITEM, I_TO_NAME,
+                            ITEM_TO_I, N_LOCS, N_ITEMS, N_NAMES, extract_query)
+from reverse_templates import reverse_templates
 
 
 def next_exp_dir(base: str = "experiments") -> str:
@@ -86,22 +89,51 @@ def main():
     # ---- train ----
     cfg = WorldTrainConfig(d_state=args.d_state, d_model=args.d_model,
                            epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
-                           slot_w=args.slot_w, seed=args.seed)
+                           seed=args.seed)
     t0 = time.time()
     model, hist = train_world(qa, tokenizer, device, cfg, qa_hook=lambda e: None)
     train_s = time.time() - t0
 
     # ---- eval ----
-    acc, task_acc, n = run_world_qa(model, qa, tokenizer, device)
+    task_acc, acc, n = run_world_qa(model, qa, tokenizer, device)
 
     # ---- samples ----
     samples = []
-    eos = tokenizer.vocab[tokenizer.eos_token]
-    pad = tokenizer.vocab[tokenizer.pad_token]
+    dbg = []
     for s in qa[:12]:
         ent_slots, item_slots, holder_logits = model.write(s["narrative"], tokenizer, device)
-        gen = model.read_answer(ent_slots, item_slots, holder_logits, s, tokenizer).strip()
-        samples.append({"task": s["task_type"], "question": s.get("question"),
+        subj_name, item_name = extract_query(s)
+        subj = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
+        ent = ent_slots[subj]                       # [d_state]
+        hl = holder_logits                          # [N_ITEMS, N_NAMES]
+        task = s["task_type"]
+        if task == "location":
+            gen = I_TO_LOC[model.loc_head(ent.unsqueeze(0)).argmax(-1).item()]
+            if len(dbg) < 6 and subj_name in NAME_POOL:
+                topk = model.loc_head(ent.unsqueeze(0))[0].topk(3).indices.tolist()
+                dbg.append((subj_name, s["answer"], gen,
+                            [(I_TO_LOC[k], round(model.loc_head(ent.unsqueeze(0))[0][k].item(), 2)) for k in topk]))
+        elif task == "inventory":
+            probs = model.inv_head(ent.unsqueeze(0)).sigmoid()[0]
+            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if probs[i] > 0.5]
+            gen = " and ".join(items) if items else "nothing"
+            if len(dbg) < 6 and subj_name in NAME_POOL:
+                dbg.append((subj_name, "inv", s["answer"], gen,
+                            [(I_TO_ITEM[i], round(probs[i].item(), 2))
+                             for i in range(N_ITEMS) if probs[i] > 0.3]))
+        elif task == "transfer":
+            if item_name in ITEM_TO_I:
+                iidx = ITEM_TO_I[item_name]
+                islot = item_slots[iidx, :N_NAMES].unsqueeze(0)
+                holder = model.holder_head(islot).argmax(-1).item()
+                ent2 = ent_slots[holder]
+                gen = I_TO_LOC[model.loc_head(ent2.unsqueeze(0)).argmax(-1).item()]
+            else:
+                gen = ""
+        else:
+            item = item_slots[0]
+            gen = model.generate_answer(ent, item, hl, s.get("question", ""), tokenizer)
+        samples.append({"task": task, "question": s.get("question"),
                         "expected": s["answer"], "generated": gen,
                         "correct": gen.strip().lower() == s["answer"].strip().lower()})
 
@@ -122,6 +154,9 @@ def main():
             f.write(f"[{'OK' if sm['correct'] else 'X'}] ({sm['task']}) Q: {sm['question']}\n")
             f.write(f"    expected: {sm['expected']!r}  generated: {sm['generated']!r}\n")
     torch.save(model.state_dict(), Path(exp_dir) / "model.pt")
+
+    for d in dbg:
+        print(f"  [dbg] subj={d[0]} task={d[1]} expected={d[2]} pred={d[3]} probs={d[4]}")
 
     print(f"\nSTAGE: done task={args.task} acc={acc:.3f} n={n} ({train_s:.0f}s)")
     print(f"  per-task: " + " ".join(f"{t}={a:.3f}" for t, a in task_acc.items()))
