@@ -62,8 +62,8 @@ precise recall (WHERE) because the current design has **no tape**.
 | T02 | SSM wins aggregation, tape wins recall | `02-ssm-vs-tape-split.md` | ✅ confirmed |
 | T03 | Label non-uniqueness drowns signal (NONE collapse) | `03-dataset-label-nonuniqueness.md` | ✅ confirmed |
 | T04 | Normally-Empty latent-state vectors | `04-normally-empty-state-vectors.md` | ✅ rate confirmed / arch untested |
-| T05 | Uniqueness-weighted loss `w(a)=-log2 p(a)` | `05-uniqueness-weighted-loss.md` | 🟡 proposed fix |
-| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | 🟡 proposed fix |
+| T05 | Uniqueness-weighted loss `w(a)=-log2 p(a)` | `05-uniqueness-weighted-loss.md` | 🔶 tested (partial: latent WHERE 0.018→0.041, 2.3×↑; AT/SAME still NONE-cheat, collapse architectural) |
+| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | 🔶 in progress (recon head added, running) |
 | T07 | Capacity is NOT the bottleneck | `07-capacity-not-bottleneck.md` | ❌ refuted |
 | T08 | Gradual novelty + local-GPU fast iteration | `08-gradual-novelty-local-gpu.md` | ✅ confirmed |
 
@@ -74,8 +74,8 @@ precise recall (WHERE) because the current design has **no tape**.
 | dataset-stats analysis (inline) | 2026-07-13 | T03, T04, T05 (derivation) | NONE 86.9/89.4%; entropy 1.4/1.2/5.0b; cheat ceiling 0.619; slot-emptiness 87% | ✅ confirmed |
 | gpu-throughput benchmark (inline) | 2026-07-13 | T08 | RTX 2050: 63.9k tok/s (d256), 10.7k (d768); 5k×20 run ≈15–20 min | ✅ confirmed |
 | `bench.py --quick` baseline (local) | 2026-07-13 | T08 (end-to-end path) | baseline runs end-to-end; 0.000 at tiny scale (expected sanity) | ✅ sanity OK |
-| **proposed** uniqueness-weighted loss run | — | T05, T03 | not run | 🟡 planned |
-| **proposed** auxiliary reconstruction run | — | T06, T02 | not run | 🟡 planned |
+| `exp_t05_local_2026-07-13` (n=600, 8ep, d48, RTX2050) | 2026-07-13 | T05, T03 | lat 0.596 vs base 0.617; lat WHERE 0.041 (2.3×↑), AT/SAME still ~0.8 NONE-cheat; T05 insufficient alone | ✅ done |
+| `exp_t06_local_2026-07-13` (recon head, alone) | 2026-07-13 | T06, T04 | RUNNING | 🟡 in progress |
 | **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
 
 ## Research Log (condensed milestones)
@@ -106,8 +106,9 @@ precise recall (WHERE) because the current design has **no tape**.
 1. **Local GPU baseline:** `bench.py --models baseline --device cuda
    --n_samples 2000 --epochs 10 --answer_loss_weight 1.0` (~5–8 min) to confirm
    the guarded baseline learns on the local GPU.
-2. **Apply T05 + T06** to `train_converged.py` / `bench.py` (uniqueness
-   weighting + auxiliary reconstruction) and re-run locally — the targeted fix
-   for the collapse.
+2. **T05 applied + tested** (partial: helped latent WHERE, did NOT break
+   AT/SAME NONE-collapse → collapse is architectural, T04). **T06 (recon head)
+   in progress** — forces the latent state to encode item→location so AT/SAME
+   becomes decodable; running locally now (RTX 2050).
 3. **iter-3** integration-heavy mix → expect latent to win overall (confirms T02).
 4. **Scale** to ~20M params on local GPU (T08) for the first-night win condition.

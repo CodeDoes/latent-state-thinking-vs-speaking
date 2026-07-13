@@ -19,6 +19,7 @@ on Kaggle GPU (--device cuda).
 import argparse
 import json
 import random
+import math
 from collections import defaultdict
 
 import torch
@@ -71,6 +72,22 @@ def main():
     nval = max(1, int(args.val_frac * len(data)))
     val, tr = data[:nval], data[nval:]
 
+    # T05 uniqueness-weighted loss: up-weight rare/informative answers so the
+    # model can't "win" by always emitting the majority answer (e.g. "NONE",
+    # ~87-89% of AT/SAME). w(a) = -log2 p(a) over the corpus; a frequent "NONE"
+    # gets a tiny weight, a specific location/item (low p) gets a large one.
+    # Applied to BOTH models for a clean A/B.
+    ans_str = lambda x: "".join(map(str, x)) if isinstance(x, (list, tuple)) else str(x)
+    ans_counts = defaultdict(int)
+    for s in tr:
+        for (_q, a) in s["queries"]:
+            ans_counts[ans_str(a)] += 1
+    total_ans = sum(ans_counts.values()) or 1
+    ans_w = {a: -math.log2(c / total_ans) for a, c in ans_counts.items()}
+    print(f"T05 uniqueness weights: {len(ans_w)} distinct answers | "
+          f"NONE weight={ans_w.get('NONE', 0.0):.3f} "
+          f"mean={sum(ans_w.values()) / max(1, len(ans_w)):.3f}")
+
     latent = LatentModel(vocab, d_emb=args.d_emb, d_state=d_state,
                          d_hidden=args.d_hidden).to(dev)
     latent.bos = tok.bos
@@ -101,23 +118,27 @@ def main():
             for (q, a) in s["queries"]:
                 q_ids = tok.enc(q)
                 a_ids = tok.enc(a)
+                a_str = ans_str(a)
                 # INFERENCE PATH: answer from the source state (trained every batch)
-                ls = ls + latent.ffn_loss(s_src, der_ans, q_ids, a_ids)
+                ls = ls + ans_w[a_str] * latent.ffn_loss(s_src, der_ans, q_ids, a_ids)
                 # keep the source->question path alive (cheap regularizer)
                 ls = ls + 0.3 * latent.ffn_loss(s_src, der_src, q_ids, q_ids)
             # ANS-mode booster (training only, discarded at inference):
             # think over the first answer, then reproduce it.
             (q0, a0) = s["queries"][0]
+            a0_str = ans_str(a0)
             s_ans = latent.think_state(torch.tensor(tok.enc(a0), device=dev),
                                        der_ans, args.K)
-            ls = ls + 0.5 * latent.ffn_loss(s_ans, der_ans, tok.enc(q0), tok.enc(a0))
+            ls = ls + 0.5 * ans_w[a0_str] * latent.ffn_loss(s_ans, der_ans, tok.enc(q0), tok.enc(a0))
             ls.backward()
             optL.step()
             # --- baseline (token-by-token): re-encode source per question ---
             for (q, a) in s["queries"]:
                 optB.zero_grad()
-                baseline.forward_loss(tok.enc(s["source"]), tok.enc(q),
-                                     tok.enc(a), baseline.bos).backward()
+                a_str = ans_str(a)
+                loss_b = ans_w[a_str] * baseline.forward_loss(tok.enc(s["source"]), tok.enc(q),
+                                                              tok.enc(a), baseline.bos)
+                loss_b.backward()
                 optB.step()
 
         # --- validation (with per-query-type breakdown) ---
@@ -173,6 +194,7 @@ def main():
         "epochs": args.epochs,
         "K": args.K,
         "max_events": args.max_events,
+        "T05_uniqueness_weighted": True,
         "params_latent": n_lat,
         "params_baseline": n_base,
         "val_latent_acc": accL / n,
