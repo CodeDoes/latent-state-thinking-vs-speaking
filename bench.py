@@ -56,6 +56,9 @@ MODELS = {
     "latent_ssm_think":     dict(model="latent_ssm",         ls=4, te=4, tps=8, dm=256),
     "latent_ssm_think8":    dict(model="latent_ssm",         ls=4, te=8, tps=8, dm=256),
     "latent_ssm_decoder":   dict(model="latent_ssm_decoder", ls=4, te=4, tps=8, dm=256),
+    # Structured world-state model (complexity-aware: latent state is an
+    # explicit entity/item slot table, supervised by reverse_templates).
+    "world":                dict(model="world",              ls=0, te=0, tps=8, dm=256),
 }
 
 QUICK = dict(d_model=32, n_samples=64, epochs=1, max_seq_len=160,
@@ -90,6 +93,12 @@ def run_one(key: str, args, dataset, device) -> dict:
     dm = spec.get("dm", args.d_model)
     if getattr(args, "quick", False) and QUICK_DM_OVERRIDE:
         dm = args.d_model
+
+    # ---- Structured world-state model: dedicated training loop (complexity-aware).
+    #      Its latent state is an explicit entity/item slot table supervised by
+    #      reverse_templates, so it cannot reuse the generic next-token Trainer.
+    if spec["model"] == "world":
+        return run_one_world(key, args, dataset, device)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -159,6 +168,59 @@ def run_one(key: str, args, dataset, device) -> dict:
         samples=samples,
     )
     print(f"STAGE: done exp={key} val_loss={final_val} acc={qa['overall_accuracy'] if qa else None}")
+
+
+def run_one_world(key: str, args, dataset, device) -> dict:
+    """Benchmark entry for the structured WorldModel (src/world_state.py).
+
+    Produces the SAME result-dict shape as run_one() so it slots into the
+    shared report. The model's latent state is an explicit entity/item slot
+    table supervised by reverse_templates (the complexity-aware design).
+    """
+    from src.world_state import WorldTrainConfig, train_world, run_world_qa
+    quick = getattr(args, "quick", False)
+    dm = args.d_model if quick else 256
+    n_samples = 64 if quick else args.n_samples
+    epochs = 1 if quick else args.epochs
+
+    print(f"STAGE: start exp={key} model=world dm={dm} epochs={epochs}")
+    texts = [s["narrative"] + "\nQuestion: " + (s.get("question", "") or "")
+             + "\nAnswer: " + s["answer"] for s in dataset]
+    tokenizer = CharTokenizer(texts, max_vocab=256)
+
+    cfg = WorldTrainConfig(d_state=dm, d_model=max(32, dm // 2),
+                           epochs=epochs, batch_size=args.batch_size,
+                           lr=3e-4, seed=args.seed)
+    # importable model so param count can be reported
+    from src.world_state import WorldModel
+    model = WorldModel(tokenizer.vocab_size, d_state=cfg.d_state,
+                       d_model=cfg.d_model).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+
+    model, hist = train_world(dataset, tokenizer, device, cfg, qa_hook=None)
+
+    qa = [s for s in dataset if s.get("question")]
+    acc, task_acc, n = run_world_qa(model, qa, tokenizer, device)
+    final_val = hist["slot_loss"][-1] if hist["slot_loss"] else None
+    low_but_useless = bool(final_val is not None and final_val < 2.0 and acc < 0.5)
+    samples = []
+    for s in qa[:6]:
+        ent_slots, item_slots, holder_logits = model.write(s["narrative"], tokenizer, device)
+        eos = tokenizer.vocab[tokenizer.eos_token]
+        pad = tokenizer.vocab[tokenizer.pad_token]
+        ids = model.generate_answer(ent_slots, item_slots, holder_logits,
+                                    s.get("question", ""), tokenizer, eos_id=eos, pad_id=pad)
+        samples.append(dict(task=s["task_type"], question=s.get("question"),
+                            expected=s["answer"], generated=tokenizer.decode(ids).strip()))
+    print(f"STAGE: done exp={key} slot_loss={final_val} acc={acc}")
+    return dict(
+        key=key, model="world", latent_steps=0, think_every=0,
+        params=n_params, elapsed_s=0,
+        final_train_loss=hist["ans_loss"][-1] if hist["ans_loss"] else None,
+        final_val_loss=final_val,
+        overall_accuracy=acc, task_accuracy=task_acc, stratified=None,
+        n_eval=n, low_but_useless=low_but_useless, samples=samples,
+    )
 
 
 def render_report(results: list) -> str:

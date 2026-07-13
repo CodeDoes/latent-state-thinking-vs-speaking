@@ -275,6 +275,16 @@ def generate_transfer_task(
 
     The answer (the item's final location) requires combining two reasoning
     steps: who currently holds the item, and where that holder ended up.
+
+    CO-LOCATION GUARANTEE: every "give"/"transfer" event must be preceded in
+    the narrative by an explicit sentence that places giver and recipient in
+    the SAME room. If the call to `world.transfer_item(...)` triggered the
+    auto-co-location branch (i.e. they were originally in different rooms),
+    we *also* emit a "{recipient} went to the {giver_location}." sentence so
+    the narrative is self-consistent -- otherwise the question
+    "Where is the {item}?" is ill-posed (the recipient's location is
+    under-determined by the narrative). This eliminates the ambiguous-Answer
+    class that previously caused inverse vs. GT disagreements.
     """
     world = World()
     sentences = [
@@ -293,8 +303,17 @@ def generate_transfer_task(
         r = random.random()
         if r < 0.45:
             recip = random.choice([n for n in names if n != holder])
+            # Look up the giver's location BEFORE the transfer mutates state.
+            giver_loc = world.entities[holder].location
+            recip_loc = world.entities[recip].location
             s = world.transfer_item(item, holder, recip)
             if s:
+                # If the transfer silently re-located the recipient (different
+                # rooms before), narrate that move FIRST so the narrative
+                # fully determines the answer.
+                if recip_loc != giver_loc:
+                    reloc = f"{recip} went to the {giver_loc}."
+                    sentences.append(reloc)
                 sentences.append(s)
                 holder = recip
             else:

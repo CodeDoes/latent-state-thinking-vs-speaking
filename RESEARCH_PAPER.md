@@ -227,7 +227,9 @@ confidence losses applied at **every** loop state, like a transformer over time)
 loop→auto-encoder→generator pipeline. The `NONE` shortcut was removed from `AT`/`SAME`
 (guaranteed co-located pairs so `SAME` has answers). Result: the eval metric now **moves**
 every epoch (frozen-bug fixed), but the latent **trails** the equal-capacity AR baseline
-(≈0.01 vs ≈0.06) and its training loss is stuck while the baseline learns. The prior
+(≈0.01 vs ≈0.06) and its training loss descends but plateaus higher than the baseline's
+(269→220 vs 35.8→4.6; the latent loss is summed over 7 loop states of deep supervision, so
+raw magnitudes aren't directly comparable). The prior
 "decisive win" is **retracted** — it was an artifact of a broken loop plus the `NONE` cheat.
 The corrected experiment is a genuine (negative) result: at this scale the think-once state
 does not beat per-query re-encoding on relational reasoning.

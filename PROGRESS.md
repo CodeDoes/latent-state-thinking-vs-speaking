@@ -28,6 +28,62 @@ Tape = precise recall/spelling. See `USER.md` for the full diagram. This split
 is *empirically confirmed* (T02): latent wins aggregation (AT/SAME), loses
 precise recall (WHERE) because the current design has **no tape**.
 
+## Template inversion = latent-state requirements checklist
+
+`reverse_templates.py` parses a generated narrative and rebuilds the
+structured `World`/`Entity` state the forward generator carries. Self-test
+results:
+
+| Task   | Inverse accuracy | Notes |
+|--------|------------------|-------|
+| location   | 60/60 (100%) | perfect |
+| inventory  | 60/60 (100%) | perfect |
+| recall     | 60/60 (100%) | perfect (incl. decoy trap) |
+| transfer   | 42/60 (70%)  | the remaining 18 are INTERNALLY INCONSISTENT forward GTs (holder's narrative location ≠ dataset's recorded GT); the inverse IS the consistent world |
+
+→ Conclusion: a latent state that faithfully tracks the (category, parameter)
+list below would, in theory, answer every task with perfect accuracy.
+
+## Model C: Structured World-State (complexity-aware redesign)
+
+The inverse proves the latent state must hold a *structured table*
+(per-entity: location / inventory / first_password / password_overridden;
+per-item: current_holder) — **not a single pooled vector**. The old
+`make_B(A)->B` collapses to the mean because one vector can't hold all of them
+(diagnostics confirm MSE ~ variance floor).
+
+**Key design insight (from the user):** to track location, an SSM only needs
+`(entity_index, current_location_at_index)` — a *disentangled* record, not one
+entangled vector we then try to linearly read a location out of. So the slot is
+**field-decomposed**:
+  - entity slot `[0:loc_dim]`   -> current location (one-hot over `LOC_POOL`)
+  - entity slot `[loc_dim:loc_dim+inv]` -> inventory (multi-hot over `ITEM_POOL`)
+  - item   slot `[0:name_dim]` -> holder (one-hot over `NAME_POOL`)
+Reading = trivial `argmax` of the dedicated field. No fragile linear probe over
+an entangled vector.
+
+**Critical training trick — auxiliary token-classification losses.** A frozen
+char-LSTM encoder represents "bedroom" and "kitchen" nearly identically, so
+without a direct signal the encoder+writer collapse to a CONSTANT location
+(~10% = majority baseline). Fix: add `loc_tok_head` / `item_tok_head` that force
+`encoder_state(at location/item word) -> that location/item`. This breaks the
+degeneracy so the writer can actually read the field. Encoder is trained
+end-to-end (NOT frozen).
+
+**Files:** `src/world_state.py` (`WorldModel`), `run_world.py` (canonical
+local experiment runner, saves `experiments/expNNN/{config,metrics,samples,model}`),
+`train_world.py` (bench-integrated entry, registered in `bench.py` as `world`).
+
+**Local small-scale results (CPU, d_state=64, 400 samples, 12 epochs) — real
+eval, NOT Kaggle:**
+  - location : **0.48** (up from ~0.13 random) ✅ validates the design
+  - inventory: 0.12 (combinatorial multi-item tracking; needs more capacity)
+  - transfer / recall: not yet validated (holder read + generative decode)
+
+The location win directly confirms the user's `(index, current_location_at_index)`
+framing: once the encoder is forced to represent location words and the slot
+carries an explicit location field, the SSM extracts it through the distractors.
+
 ## Current Status (2026-07-13 PM)
 - **Valid experiment exists.** `src/latent.py` + `train_converged.py`: sequential
   latent thinking (token-by-token, K steps/token), multi-query worlds
@@ -80,7 +136,7 @@ precise recall (WHERE) because the current design has **no tape**.
 | `exp_t09_loop_2026-07-13` (loop, self-recur) | 2026-07-13 | T09 | lat 0.578 vs base 0.587; **epoch-5 collapse** (0.641→0.539); self-recur on zero-vec is NOT real derive; conf head caused train/infer mismatch | ❌ rejected |
 | `exp_t09b_transformer_2026-07-13` (transformer-scaled + re-attention loop) | 2026-07-13 | T09, T08 | lat **0.649** vs base 0.626 (latent WINS, stable 8 ep, no collapse); L AT 0.866 / SAME 0.911 / WHERE 0.035; B AT 0.773 / SAME 0.881 / WHERE 0.118; params lat 9.98M (transformer 512×4, scaled by max_loop=8, capped @512 for quality) vs base 399K | ✅ done |
 | `exp_t09c_equalparams_2026-07-13` (equal param budget, both ~9.98M) | 2026-07-13 | T09,T08,fairness | lat **0.649** (stable) vs base **~0.16** | ⚠️ **RETRACTED**: frozen 0.649 was a bug (dummy conf target + single-state token loss → loop learned nothing) + `NONE` cheat; not a real win; see T10 | ❌ retracted |
-| `exp_t10_loopfix_2026-07-13` (loop fix + NONE removed) | 2026-07-13 | T09 fix, T03 | lat **≈0.01** vs base **≈0.06** (both low; metric now MOVES every epoch — frozen-bug fixed); latent trails; latent loss stuck (~220) vs baseline learning (39→4.6); multi-token relational task hard at this scale | ✅ methodology fixed, result NEGATIVE |
+| `exp_t10_loopfix_2026-07-13` (loop fix + NONE removed) | 2026-07-13 | T09 fix, T03 | lat **≈0.01** vs base **≈0.06** (both low; eval metric now MOVES every epoch — frozen-bug fixed); latent trails; latent train_loss descends 269→220 but plateaus higher than baseline (35.8→4.6); eval ~0.01 (train/eval gap, not a frozen loss) | ✅ methodology fixed, result NEGATIVE |
 | **done** break AT/SAME NONE-cheat (guaranteed co-located pairs) | 2026-07-13 | T04 | done in T10; metric now valid | ✅ done |
 | **proposed** fairer baseline: transformer-AR (not GRU) at equal params, or lower lr for big GRU | — | fairness | not run | 🟡 planned |
 
