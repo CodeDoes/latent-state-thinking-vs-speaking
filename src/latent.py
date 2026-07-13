@@ -103,6 +103,14 @@ def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
 
     source = [t for (it, l) in events for t in (it, l, ".")]
 
+    # guarantee at least one co-located pair so SAME has non-NONE answers
+    # (items are usually in distinct locations, so without this SAME is empty).
+    if not any(loc_of[x] == loc_of[y] for x in items for y in items if x != y):
+        b = rng.choice(items)
+        a = rng.choice([x for x in items if x != b])
+        loc_of[a] = loc_of[b]
+    occupied = [l for l in locs if any(loc_of[it] == l for it in items)]
+
     queries = []
     nq = rng.randint(4, 8)  # more queries/world -> amortized thinking matters
     for _ in range(nq):
@@ -114,16 +122,18 @@ def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
             q = ["WHERE", it, "?"]
             a = [loc_of[it]]
         elif qt == "AT":
-            lk = rng.choice(locs)
+            lk = rng.choice(occupied)          # guaranteed non-empty location
             members = [it for it in items if loc_of[it] == lk]
             q = ["AT", lk, "?"]
-            a = members if members else ["NONE"]
+            a = members
         else:  # SAME
-            it = rng.choice(items)
-            lk = loc_of[it]
-            others = [x for x in items if x != it and loc_of[x] == lk]
+            # pick an item that HAS a co-located other (guaranteed to exist)
+            cand = [it for it in items
+                    if any(x != it and loc_of[x] == loc_of[it] for x in items)]
+            it = rng.choice(cand)
+            others = [x for x in items if x != it and loc_of[x] == loc_of[it]]
             q = ["SAME", it, "?"]
-            a = others if others else ["NONE"]
+            a = others
         queries.append((q, a))
 
     return {"source": source, "queries": queries, "k": len(events),
@@ -170,29 +180,38 @@ class LatentModel(nn.Module):
             nn.Tanh(),
         )
         self.qvec = nn.Linear(d_ctx, d_ctx)
-        self.speak = nn.GRU(2 * d_ctx + d_state + d_der, d_hidden, batch_first=True)
+        # loop -> auto-encoder -> token-generator.  The AE compresses the
+        # looping state s -> z (bottleneck) -> s_hat and reconstructs s, giving
+        # a smoothness/regularisation signal; the generator and recon heads
+        # read from z.
+        self.d_ae = d_state   # no compression: AE is a smoothness regulariser, not a bottleneck
+        self.ae_enc = nn.Linear(d_state, self.d_ae)
+        self.ae_dec = nn.Linear(self.d_ae, d_state)
+        self.speak = nn.GRU(2 * d_ctx + self.d_ae + d_der, d_hidden, batch_first=True)
         self.out = nn.Linear(d_hidden, self.vocab)
         self.comp = nn.Linear(d_hidden, 1)
-        # T09 readiness head (loop early-stop)
-        self.state_conf = nn.Linear(d_state, 1)
-        # T06 auxiliary reconstruction head: predict each item's final
-        # location from the latent state (forces the state to encode the
-        # trajectory/relational info AT/SAME queries need).
-        self.recon = nn.Linear(d_state + d_ctx, n_locs)
+        # T09 confidence/completion head: predicts how *complete* the state is
+        # given the context. Trained from the loop TRAJECTORY (the loop whose
+        # state is closest to the final/converged state gets target ~1). At
+        # inference it early-exits the loop when confidence >= min_certainty.
+        self.conf_head = nn.Linear(d_state + d_ctx, 1)
+        # T06 auxiliary reconstruction head: item -> final location, read from z.
+        self.recon = nn.Linear(self.d_ae + d_ctx, n_locs)
 
     # ---- thinking: transformer-encode context, fold, then loop-derive ----
     def think_state(self, ids, der_id, K=1, loop_max=0, min_certainty=0.9,
                     train=False):
         """Encode context ONCE with the transformer; fold state over the reps;
-        then re-attend the reps `loop_max` times to 'derive the future' (cheap,
-        small context, no re-tokenization). Stops early at inference when
-        readiness >= min_certainty. Then rapid-decode many tokens from `s`."""
+        then re-attend the reps `loop_max` times to 'derive the future'. Stops
+        early at inference when confidence(state, context) >= min_certainty.
+        Returns the final oriented state [1, d_state]."""
         der = self.der_emb(der_id).unsqueeze(0)
         s = self.s0.unsqueeze(0)
         if ids.numel() == 0:
             return s
         x = self.emb(ids).unsqueeze(0)            # [1, T, d_ctx]
         reps = self.ctx_enc(x)[0]                 # [T, d_ctx]  (context encoded ONCE)
+        ctx_pool = reps.mean(0).unsqueeze(0)       # [1, d_ctx]
         T = reps.size(0)
         for t in range(T):
             xt = reps[t].unsqueeze(0)
@@ -201,31 +220,56 @@ class LatentModel(nn.Module):
         if loop_max <= 0:
             return s
         for _ in range(loop_max):
-            if not train and torch.sigmoid(self.state_conf(s.squeeze(0))).item() >= min_certainty:
+            if not train and self.confidence(s, ctx_pool).item() >= min_certainty:
                 break
             for t in range(T):
                 s = self.think(torch.cat([s, reps[t].unsqueeze(0), der], dim=1))
         return s
 
-    def state_confidence(self, s):
-        """Readiness in [0,1]: is the latent oriented / ready to answer?"""
-        return torch.sigmoid(self.state_conf(s.squeeze(0)))
+    def think_trajectory(self, ids, der_id, K=1, loop_max=0):
+        """Full unroll (no early-exit). Returns (s_final, [states], reps).
+        Used in TRAINING for deep supervision: the token generator + recon +
+        confidence losses are applied at EVERY loop state (it trains like a
+        normal transformer unrolled over `loop_max` steps)."""
+        der = self.der_emb(der_id).unsqueeze(0)
+        s = self.s0.unsqueeze(0)
+        if ids.numel() == 0:
+            return s, [s], None
+        x = self.emb(ids).unsqueeze(0)
+        reps = self.ctx_enc(x)[0]
+        T = reps.size(0)
+        for t in range(T):
+            xt = reps[t].unsqueeze(0)
+            for _ in range(K):
+                s = self.think(torch.cat([s, xt, der], dim=1))
+        states = [s]
+        if loop_max > 0:
+            for _ in range(loop_max):
+                for t in range(T):
+                    s = self.think(torch.cat([s, reps[t].unsqueeze(0), der], dim=1))
+                states.append(s)
+        return states[-1], states, reps
+
+    def confidence(self, s, ctx_pool):
+        """Readiness in [0,1]: how complete is `s` given `ctx_pool`?"""
+        return torch.sigmoid(self.conf_head(torch.cat([s, ctx_pool], dim=1)))
 
     def ffn_loss(self, s, der_id, q_ids, tgt_ids, lam_comp=1.0):
-        """Train FFN(L, derive) -> target tokens (teacher-forced)."""
+        """Train generator from latent state `s` (teacher-forced). `s` is
+        auto-encoded to the bottleneck `z` before the GRU (loop -> AE -> gen)."""
         if isinstance(tgt_ids, (list, tuple)):
             tgt_ids = torch.tensor(tgt_ids, device=s.device)
         if isinstance(q_ids, (list, tuple)):
             q_ids = torch.tensor(q_ids, device=s.device)
+        z = self.ae_enc(s.squeeze(0)).unsqueeze(0).unsqueeze(0)  # [1,1,d_ae]
         der = self.der_emb(der_id).unsqueeze(0).unsqueeze(0)  # [1,1,d_der]
-        s3 = s.unsqueeze(1)                                   # [1,1,d_state]
-        qv = self.qvec(self.emb(q_ids).mean(0)).unsqueeze(0).unsqueeze(0)  # [1,1,d_emb]
+        qv = self.qvec(self.emb(q_ids).mean(0)).unsqueeze(0).unsqueeze(0)  # [1,1,d_ctx]
         h = torch.zeros(1, 1, self.speak.hidden_size, device=s.device)
         toks = [self.bos] + tgt_ids.tolist()
         logits, comps = [], []
         for i in range(len(tgt_ids)):
             xt = self.emb(torch.tensor(toks[i], device=s.device)).unsqueeze(0).unsqueeze(0)
-            out, h = self.speak(torch.cat([xt, s3, der, qv], dim=2), h)
+            out, h = self.speak(torch.cat([xt, z, der, qv], dim=2), h)
             logits.append(self.out(out[0, 0]))
             comps.append(torch.sigmoid(self.comp(out[0, 0])))
         logits = torch.stack(logits)
@@ -237,18 +281,18 @@ class LatentModel(nn.Module):
         return ce + lam_comp * bce
 
     def ffn_gen(self, s, der_id, q_ids, max_len=16, tau=0.5):
-        """Greedy generation from state `s`. Returns list[int] token ids."""
+        """Greedy generation from latent state `s` (auto-encoded to z)."""
         if isinstance(q_ids, (list, tuple)):
             q_ids = torch.tensor(q_ids, device=s.device)
+        z = self.ae_enc(s.squeeze(0)).unsqueeze(0).unsqueeze(0)
         der = self.der_emb(der_id).unsqueeze(0).unsqueeze(0)
-        s3 = s.unsqueeze(1)
         qv = self.qvec(self.emb(q_ids).mean(0)).unsqueeze(0).unsqueeze(0)
         h = torch.zeros(1, 1, self.speak.hidden_size, device=s.device)
         toks = [self.bos]
         out_ids = []
         for _ in range(max_len):
             xt = self.emb(torch.tensor(toks[-1], device=s.device)).unsqueeze(0).unsqueeze(0)
-            out, h = self.speak(torch.cat([xt, s3, der, qv], dim=2), h)
+            out, h = self.speak(torch.cat([xt, z, der, qv], dim=2), h)
             nid = int(self.out(out[0, 0]).argmax())
             out_ids.append(nid)
             if torch.sigmoid(self.comp(out[0, 0])).item() > tau or nid == self.eos:
@@ -270,15 +314,15 @@ class LatentModel(nn.Module):
         """
         if not loc_of:
             return torch.zeros((), device=s.device)
-        s_flat = s.squeeze(0)                      # [d_state]
+        z = self.ae_enc(s.squeeze(0))              # [d_ae] bottleneck
         losses = []
         for it, lk in loc_of.items():
             it_id = tok.stoi.get(it)
             if it_id is None or lk not in tok.cats["loc"]:
                 continue
             lk_idx = tok.cats["loc"].index(lk)   # 0..n_locs-1, NOT vocab index
-            ie = self.emb(torch.tensor(it_id, device=s.device))   # [d_emb]
-            logits = self.recon(torch.cat([s_flat, ie], dim=-1))  # [n_locs]
+            ie = self.emb(torch.tensor(it_id, device=s.device))   # [d_ctx]
+            logits = self.recon(torch.cat([z, ie], dim=-1))  # [n_locs]
             losses.append(F.cross_entropy(
                 logits.unsqueeze(0),
                 torch.tensor(lk_idx, device=s.device).unsqueeze(0)))

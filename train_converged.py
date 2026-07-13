@@ -69,12 +69,16 @@ def main():
     ap.add_argument("--no_t05", action="store_true",
                     help="disable T05 uniqueness weighting (uniform answer weights)")
     ap.add_argument("--max_loop", type=int, default=0,
-                    help="T09 latent reasoning loop: self-recursion steps after "
-                         "context fold (0 = off)")
+                    help="T09 latent reasoning loop: re-attend the encoded context "
+                         "this many times to 'derive the future' (full unroll in "
+                         "training; early-exit at inference). 0 = off")
     ap.add_argument("--min_certainty", type=float, default=0.9,
-                    help="T09 inference early-stop readiness threshold")
+                    help="T09 inference early-stop confidence threshold")
     ap.add_argument("--conf_w", type=float, default=0.1,
-                    help="T09 readiness-head BCE weight (target=ready after thinking)")
+                    help="T09 confidence-head BCE weight; target derived from the "
+                         "loop trajectory (closest-to-final loop -> 1)")
+    ap.add_argument("--ae_w", type=float, default=0.1,
+                    help="auto-encoder (loop->AE->generator) reconstruction MSE weight")
     args = ap.parse_args()
     if args.quick:
         args.n_samples = 400
@@ -151,28 +155,38 @@ def main():
     print(f"params: latent={n_lat} baseline={n_base}")
 
     for ep in range(args.epochs):
+        totL = totB = 0.0
+        nB = 0
         for s in tr:
             src_t = torch.tensor(tok.enc(s["source"]), device=dev)
             # --- latent model: think ONCE over the source (then T09 loop) ---
-            s_src = latent.think_state(src_t, der_src, args.K,
-                                       loop_max=args.max_loop, train=True)   # L_src [1,d_state]
+            # --- latent: full loop unroll; deep supervision across loop steps ---
+            s_final, states, reps = latent.think_trajectory(
+                src_t, der_src, args.K, loop_max=args.max_loop)
+            ctx_pool = reps.mean(0).unsqueeze(0)            # [1, d_ctx]
+            # confidence targets from the loop TRAJECTORY: the loop whose state
+            # is closest to the final (most-converged) state -> target ~1.
+            devi = torch.stack([(st.squeeze(0) - s_final.squeeze(0)).pow(2).mean()
+                                for st in states])          # [L]
+            dmn, dmx = devi.min(), devi.max()
+            tgt_conf = (torch.ones_like(devi) * 0.9 if (dmx - dmn) < 1e-6
+                        else (dmx - devi) / (dmx - dmn))
+            loc_of = s.get("loc_of", {})
             optL.zero_grad()
             ls = 0.0
-            if args.recon_w > 0:
-                ls = ls + args.recon_w * latent.recon_loss(s_src, s.get("loc_of", {}), tok)
-            if args.conf_w > 0:
+            for st, tc in zip(states, tgt_conf):
+                z = latent.ae_enc(st.squeeze(0))
+                ls = ls + args.ae_w * F.mse_loss(latent.ae_dec(z), st.squeeze(0))
+                c = latent.confidence(st, ctx_pool)
                 ls = ls + args.conf_w * F.binary_cross_entropy(
-                    latent.state_confidence(s_src), torch.ones(1, device=dev))
-            for (q, a) in s["queries"]:
-                q_ids = tok.enc(q)
-                a_ids = tok.enc(a)
-                a_str = ans_str(a)
-                # INFERENCE PATH: answer from the source state (trained every batch)
-                ls = ls + ans_w[a_str] * latent.ffn_loss(s_src, der_ans, q_ids, a_ids)
-                # keep the source->question path alive (cheap regularizer)
-                ls = ls + 0.3 * latent.ffn_loss(s_src, der_src, q_ids, q_ids)
-            # ANS-mode booster (training only, discarded at inference):
-            # think over the first answer, then reproduce it.
+                    c, tc.view(1, 1).to(dev))
+                for (q, a) in s["queries"]:
+                    q_ids = tok.enc(q); a_ids = tok.enc(a); a_str = ans_str(a)
+                    ls = ls + ans_w[a_str] * latent.ffn_loss(st, der_ans, q_ids, a_ids)
+                    ls = ls + 0.3 * latent.ffn_loss(st, der_src, q_ids, q_ids)
+                if args.recon_w > 0:
+                    ls = ls + args.recon_w * latent.recon_loss(st, loc_of, tok)
+            # ANS-mode booster (training only): think over first answer, reproduce
             (q0, a0) = s["queries"][0]
             a0_str = ans_str(a0)
             s_ans = latent.think_state(torch.tensor(tok.enc(a0), device=dev),
@@ -180,6 +194,7 @@ def main():
             ls = ls + 0.5 * ans_w[a0_str] * latent.ffn_loss(s_ans, der_ans, tok.enc(q0), tok.enc(a0))
             ls.backward()
             optL.step()
+            totL += ls.item()
             # --- baseline (token-by-token): re-encode source per question ---
             for (q, a) in s["queries"]:
                 optB.zero_grad()
@@ -188,12 +203,18 @@ def main():
                                                               tok.enc(a), baseline.bos)
                 loss_b.backward()
                 optB.step()
+                totB += loss_b.item()
+                nB += 1
+
+        print(f"  epoch {ep} train_loss latent={totL / max(1, nB):.3f} "
+              f"baseline={totB / max(1, nB):.3f}", flush=True)
 
         # --- validation (with per-query-type breakdown) ---
         accL = accB = n = 0
         tL = defaultdict(lambda: [0, 0])  # [correct, total] latent
         tB = defaultdict(lambda: [0, 0])  # [correct, total] baseline
-        for s in val:
+        samples = []
+        for si, s in enumerate(val):
             src_t = torch.tensor(tok.enc(s["source"]), device=dev)
             s_src = latent.think_state(src_t, der_src, args.K,
                                        loop_max=args.max_loop, train=False)
@@ -213,10 +234,15 @@ def main():
                     accB += 1
                     tB[qt][0] += 1
                 tB[qt][1] += 1
+                if si < 2 and len(samples) < 6:
+                    samples.append((q, a, gen, bg))
                 n += 1
         pct = lambda d: {k: round(d[k][0] / d[k][1], 4) if d[k][1] else 0.0
                       for k in sorted(d)}
         byL, byB = pct(tL), pct(tB)
+        for (q, a, lg, bg) in samples:
+            print(f"    sample q={q} exp={tok.dec(tok.enc(a))} "
+                  f"L={tok.dec(lg)} B={tok.dec(bg)}", flush=True)
         # per-query COMPUTE note: latent thinks ONCE (source, K steps) then
         # speaks N times from a fixed state; baseline re-encodes the full source
         # N times. So per query the latent model is far cheaper as N grows.
@@ -248,6 +274,8 @@ def main():
         "T09_loop_max": args.max_loop,
         "T09_min_certainty": args.min_certainty,
         "T09_transformer_scale": args.max_loop,
+        "T09_conf_from_trajectory": True,
+        "ae_w": args.ae_w,
         "params_latent": n_lat,
         "params_baseline": n_base,
         "baseline_d_hidden": base_d_hidden,
@@ -256,8 +284,9 @@ def main():
         "latent_by_type": byL,
         "baseline_by_type": byB,
         "interpretation": (
-            "latent wins" if accL > accB else
-            "baseline wins" if accB > accL else "tie"),
+            ("latent>baseline" if accL > accB else
+             "baseline>latent" if accB > accL else "tie") +
+            " [loop: full-unroll + traj-conf + deep-sup + AE; see samples]"),
     }
     with open("reports/modules_report.json", "w") as f:
         json.dump(report, f, indent=1)

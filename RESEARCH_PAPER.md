@@ -20,14 +20,18 @@ We propose a **think-once / speak-many** design: a transformer encodes the (smal
 tokens from the fixed state**. This is deliberately *not* the O(N) AR loop of re-reading the
 context and emitting one token at a time.
 
-On a synthetic multi-hop tracking task with multi-query worlds, the latent model (a) matches
-or beats an equal-capacity AR baseline, (b) wins clearly on **relational reasoning**
-(`AT`/`SAME`), and (c) **scales better**: growing the latent's context encoder with its
-reasoning budget helps, whereas growing an AR GRU baseline of *equal* size makes it
-*collapse*. We document two failure modes — a `NONE` majority-class shortcut that inflates
-apparent `AT` accuracy, and precise trajectory recall (`WHERE`) which requires an explicit
-memory/tape — and outline the next architectural steps (tape, fairer transformer-AR baseline,
-loop-at-inference).
+On a synthetic multi-hop tracking task with multi-query worlds, we find that the
+reported "decisive win" was an **artifact**. The eval metric was frozen because (i) the
+looping model was trained with a dummy confidence target and a single-state token loss —
+so the loop learned nothing — and (ii) a `NONE` majority-class shortcut pinned `AT`/`SAME`
+at their cheat ceiling. After correcting the loop training (full unroll, trajectory-derived
+confidence, deep supervision across loop states, loop→auto-encoder→generator pipeline) and
+removing the `NONE` shortcut, the metric is valid and **moves** — but at this capacity the
+latent model currently **trails** an equal-capacity AR baseline on the now-genuine relational
+task, while the baseline's per-query re-encoding is far easier to train. The durable
+contribution is the **failure-mode analysis** (NONE-shortcut, WHERE-needs-a-tape,
+capacity-not-bottleneck) and the corrected, reproducible methodology; the architectural
+hypothesis is **not yet supported** and is under active revision.
 
 ---
 
@@ -52,7 +56,7 @@ a looping latent state.
 | Level | Question | Status |
 |---|---|---|
 | 0 | Does latent state work at all? | ✅ trains, reaches ≈0.65 exact-match |
-| 1 | Does latent thinking beat tokens? | ✅ at equal capacity (T09c) |
+| 1 | Does latent thinking beat tokens? | ❌ not at this capacity: corrected run (T10) shows latent trails baseline; prior "win" was an artifact |
 | 2 | Does latent state survive context removal? | 🟡 implied by think-once design |
 | 3 | Can latent state generate multiple tokens? | ✅ speak-many from one state |
 | 4 | Can latent continue after interruption? | 🟡 not yet tested |
@@ -198,7 +202,8 @@ This explains the original collapse: without T05/T06 the model "wins" by answeri
 | T05+T06 | 0.590 | 0.587 | **latent wins**; `AT` 0.798 / `SAME` 0.844 > base 0.763/0.762 (T02 reasoning win) |
 | T09 (self-recur loop) | 0.578 | 0.587 | **epoch-5 collapse** (0.641→0.539); self-recur on zero-vec ≠ derive → rejected |
 | **T09b** (transformer + re-attend loop) | **0.649** | 0.626 | stable 8 ep, no collapse; transformer scaling fixes T09 |
-| **T09c** (equal params, both ≈9.98M) | **0.649** | **≈0.16** | **decisive win at equal capacity** (baseline unstable/collapsing) |
+| **T09c** (equal params, both ≈9.98M) | **0.649** | **≈0.16** | **RETRACTED**: frozen 0.649 was a bug (dummy conf + single-state loss) + NONE-cheat; see T10 |
+| **T10** (loop fix + NONE removed) | **≈0.01** | **≈0.06** | metric now MOVES (not frozen); latent trails; multi-token relational task hard at this scale |
 
 **Headline (T09c, equal capacity, 8 epochs planned; 6 completed before timeout):**
 
@@ -214,6 +219,18 @@ This explains the original collapse: without T05/T06 the model "wins" by answeri
 The latent trains **stably** at 9.98M; the equal-size GRU baseline **collapses**. Notably,
 *growing the baseline* (399K → 9.98M) made it **worse** (0.626 → 0.16), while *growing the
 latent* helped — so the latent architecture **scales better** than a GRU AR.
+
+**T10 (corrected methodology, cheat-free task).** Loop training rewritten per the
+proper recipe: full unroll to `max_loop`, confidence target derived from the loop
+*trajectory* (closest-to-final state → 1), deep supervision (token-generator + recon +
+confidence losses applied at **every** loop state, like a transformer over time), and a
+loop→auto-encoder→generator pipeline. The `NONE` shortcut was removed from `AT`/`SAME`
+(guaranteed co-located pairs so `SAME` has answers). Result: the eval metric now **moves**
+every epoch (frozen-bug fixed), but the latent **trails** the equal-capacity AR baseline
+(≈0.01 vs ≈0.06) and its training loss is stuck while the baseline learns. The prior
+"decisive win" is **retracted** — it was an artifact of a broken loop plus the `NONE` cheat.
+The corrected experiment is a genuine (negative) result: at this scale the think-once state
+does not beat per-query re-encoding on relational reasoning.
 
 ### 4.3 Per-type breakdown (T09b, the cleanest stable run)
 
@@ -265,7 +282,9 @@ Tuning `min_certainty`/`conf_w` so the loop actually runs at inference is future
 
 1. **Fairer baseline.** Replace the GRU AR with a **transformer-AR** of equal params (or lower
    the big GRU's LR) to isolate architecture from optimization difficulty.
-2. **Break the `NONE` cheat** so `AT` accuracy reflects real reasoning.
+2. **Break the `NONE` cheat** — DONE (removed from `AT`/`SAME`; guaranteed co-located
+   pairs). Result: metric valid/moves but latent trails baseline (T10); real relational
+   signal now measurable.
 3. **Tape / Model C** for `WHERE` (exact trajectory recall) — the latent's remaining gap.
 4. **Loop at inference** — make `derive` actually run (lower `min_certainty`/`conf_w`).
 5. **Scale to ≈20M params** on the local GPU for the "first-night win condition."
@@ -275,13 +294,19 @@ Tuning `min_certainty`/`conf_w` so the loop actually runs at inference is future
 
 ## 7. Conclusion
 
-A think-once / speak-many latent design — transformer context encoder, recurrent state fold,
-looping derive, rapid decode — **trains stably and wins against an equal-capacity autoregressive
-baseline** on long-horizon multi-query reasoning, and **scales better** than a GRU AR of the
-same size. The remaining gaps are precisely the predicted ones: `NONE`-class shortcutting on
-`AT` (fixable by task design) and exact trajectory recall on `WHERE` (requires a tape). The
-direction — *process context once, derive by looping, then speak many* — is validated as a
-viable alternative to token-by-token generation.
+A think-once / speak-many latent design — transformer context encoder, recurrent state
+fold, looping derive, rapid decode — is a **plausible** alternative to token-by-token
+generation, but the architectural hypothesis that it *beats* an equal-capacity AR model is
+**not yet supported**. The originally reported "decisive win" was invalid: the eval metric
+was frozen by a broken loop-training protocol (dummy confidence target, single-state token
+loss, no auto-encoder) compounded with a `NONE` majority-class shortcut. After correcting
+the loop (full unroll, trajectory-derived confidence, deep supervision, auto-encoder) and
+removing the shortcut, the metric is valid and moves — and the latent **trails** the AR
+baseline on the genuine relational task at this capacity. The durable, correct contributions
+are the **failure-mode analysis** (NONE-shortcut, WHERE-needs-a-tape, capacity-not-bottleneck)
+and a reproducible, honest evaluation methodology. Next: diagnose why the latent state fails
+to train (state aggregation vs deep-supervision optimization), add a tape for `WHERE`, run a
+transformer-AR baseline, and report multi-seed variance before any win claim.
 
 ---
 
