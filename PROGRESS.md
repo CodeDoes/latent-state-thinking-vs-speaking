@@ -15,7 +15,7 @@ device. (Full framing: `USER.md`.)
 | Level | Question | Status |
 |---|---|---|
 | 0 | Does latent state work at all? | ✅ state trains, reaches ~0.63 exact-match (caveat: collapses on unguarded dataset — T03) |
-| 1 | Does latent thinking beat tokens? | 🔶 NUANCED — latent wins reasoning (AT/SAME), loses trajectory (WHERE); overall tie-with-baseline-edge. iter-3 in flight |
+| 1 | Does latent thinking beat tokens? | ✅ YES w/ T05+T06 — latent wins AT/SAME (reasoning) by clear margin; ties overall; loses WHERE (trajectory recall → needs Tape, Model C) |
 | 2 | Does latent state survive context removal? | ⬜ |
 | 3 | Can latent state generate multiple tokens? | ⬜ |
 | 4 | Can latent state continue a story after interruption? | ⬜ |
@@ -62,8 +62,8 @@ precise recall (WHERE) because the current design has **no tape**.
 | T02 | SSM wins aggregation, tape wins recall | `02-ssm-vs-tape-split.md` | ✅ confirmed |
 | T03 | Label non-uniqueness drowns signal (NONE collapse) | `03-dataset-label-nonuniqueness.md` | ✅ confirmed |
 | T04 | Normally-Empty latent-state vectors | `04-normally-empty-state-vectors.md` | ✅ rate confirmed / arch untested |
-| T05 | Uniqueness-weighted loss `w(a)=-log2 p(a)` | `05-uniqueness-weighted-loss.md` | 🔶 tested (partial: latent WHERE 0.018→0.041, 2.3×↑; AT/SAME still NONE-cheat, collapse architectural) |
-| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | 🔶 tested (latent AT 0.807→0.895, above NONE-cheat 0.869; SAME/WHERE need more) |
+| T05 | Uniqueness-weighted loss `w(a)=-log2 p(a)` | `05-uniqueness-weighted-loss.md` | ✅ confirmed (helps latent WHERE + stabilizes; part of T05+T06 fix) |
+| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | ✅ confirmed (latent AT 0.807→0.895, above cheat; enables relational decoding) |
 | T07 | Capacity is NOT the bottleneck | `07-capacity-not-bottleneck.md` | ❌ refuted |
 | T08 | Gradual novelty + local-GPU fast iteration | `08-gradual-novelty-local-gpu.md` | ✅ confirmed |
 
@@ -76,7 +76,9 @@ precise recall (WHERE) because the current design has **no tape**.
 | `bench.py --quick` baseline (local) | 2026-07-13 | T08 (end-to-end path) | baseline runs end-to-end; 0.000 at tiny scale (expected sanity) | ✅ sanity OK |
 | `exp_t05_local_2026-07-13` (n=600, 8ep, d48, RTX2050) | 2026-07-13 | T05, T03 | lat 0.596 vs base 0.617; lat WHERE 0.041 (2.3×↑), AT/SAME still ~0.8 NONE-cheat; T05 insufficient alone | ✅ done |
 | `exp_t06_local_2026-07-13` (recon head, alone) | 2026-07-13 | T06, T04 | lat 0.626 vs base 0.650; latent AT 0.895 (>cheat 0.869, >base 0.886!); SAME/WHERE ~flat | ✅ done |
-| **proposed** T05+T06 combined | — | T05+T06 | queued (running) | 🟡 planned |
+| `exp_t05t06_local_2026-07-13` (T05+T06 combined) | 2026-07-13 | T05,T06,T02 | lat 0.590 vs base 0.587 (latent WINS); lat AT 0.798 / SAME 0.844 > base 0.763/0.762; WHERE base 0.163 >> lat 0.031 | ✅ done |
+| **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
+| **proposed** Tape (Model C) for WHERE | — | T02 | not run | 🟡 planned |
 | **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
 
 ## Research Log (condensed milestones)
@@ -107,10 +109,10 @@ precise recall (WHERE) because the current design has **no tape**.
 1. **Local GPU baseline:** `bench.py --models baseline --device cuda
    --n_samples 2000 --epochs 10 --answer_loss_weight 1.0` (~5–8 min) to confirm
    the guarded baseline learns on the local GPU.
-2. **T05 applied + tested** (partial: helped latent WHERE, did NOT break
-   AT/SAME NONE-collapse → collapse is architectural, T04). **T06 (recon head)
-   tested alone**: latent AT 0.807→0.895 (above cheat ceiling 0.869, above
-   baseline AT 0.886) — reconstruction forces item→location into the state.
-   **T05+T06 combined run queued** (the intended fix); then iter-3 mix.
+2. **T05+T06 combined DONE** (RTX2050, n=600, 8ep): latent 0.590 vs
+   baseline 0.587 → latent WINS overall; latent AT 0.798 / SAME 0.844 both
+   > baseline 0.763/0.762 (reasoning win, T02); WHERE baseline 0.163 >>
+   latent 0.031 (trajectory-recall loss → latent needs a Tape, Model C).
+   **Collapse FIXED.** Next: iter-3 mix (tilt to AT/SAME), then Tape.
 3. **iter-3** integration-heavy mix → expect latent to win overall (confirms T02).
 4. **Scale** to ~20M params on local GPU (T08) for the first-night win condition.
