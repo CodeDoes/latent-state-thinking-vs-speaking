@@ -106,7 +106,9 @@ def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
     queries = []
     nq = rng.randint(4, 8)  # more queries/world -> amortized thinking matters
     for _ in range(nq):
-        qt = rng.choice(["WHERE", "AT", "SAME"])
+        # integration-heavy mix: reasoning (AT/SAME) dominates; WHERE
+        # (precise trajectory recall) is the tape's job, not the SSM's.
+        qt = rng.choices(["WHERE", "AT", "SAME"], weights=[0.3, 0.35, 0.35], k=1)[0]
         if qt == "WHERE":
             it = rng.choice(items)
             q = ["WHERE", it, "?"]

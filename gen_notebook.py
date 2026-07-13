@@ -10,14 +10,18 @@ subprocess.
 
 train_converged.py trains BOTH the latent model (sequential SSM think +
 FFN speak) and an equal-capacity token-by-token baseline on the same
-long-horizon reasoning task, then reports val exact-match QA for each -- the
-actual "latent thinking vs tokens" test.
+long-horizon reasoning task, then reports val exact-match per query type
+for each -- the actual "latent thinking vs tokens" test.
 
-NOTE: this wrapper runs on Kaggle CPU. The P100 GPU path's torch downgrade
-(pip install torch 2.3.1+cu118 from the pytorch index) was hanging on
-Kaggle's network, so CPU is the reliable measurement environment. Kaggle CPU
-is a real compute environment (the guardrail forbids LOCAL cpu, not Kaggle
-CPU) and the prior converged run completed there in ~24 min.
+GPU strategy (robust, no network hang):
+  * We do NOT pip-install a P100 torch (the pytorch-index cu118
+    download HUNG on Kaggle's network).
+  * Instead we detect the GPU capability and pick the device:
+      - T4 / sm>=7.0 : the default cu121 torch works -> train on CUDA.
+      - P100 / sm<7.0 : cu121 torch would crash at runtime, so we
+        fall back to CPU (reliable, no install needed).
+  * The notebook process never imports torch (training is a subprocess), so
+    there is no triton double-registration crash.
 """
 
 import json
@@ -63,9 +67,25 @@ COMPAT = [
     "\n",
     "# IMPORTANT: do NOT import torch here. Training runs in a SEPARATE\n",
     "# subprocess (train_converged.py), so the notebook process only needs the\n",
-    "# right torch installed in the environment. (We run on CPU, so no P100\n",
-    "# torch downgrade is needed -- the cu121 default torch works on CPU.)\n",
-    "print('notebook env ready; spawning train_converged.py subprocess (CPU).')\n",
+    "# right torch installed. We do NOT downgrade torch (the P100 cu118\n",
+    "# pip install from the pytorch index HUNG on Kaggle's network).\n",
+    "# Instead we pick the device from the GPU capability:\n",
+    "#   - T4 / sm>=7.0 : default cu121 torch works -> train on CUDA\n",
+    "#   - P100 / sm<7.0 : cu121 torch would crash -> fall back to CPU (no install)\n",
+    "def gpu_capability():\n",
+    "    try:\n",
+    "        out = subprocess.check_output(\n",
+    "            ['nvidia-smi', '--query-gpu=compute_cap', '--format=csv,noheader'],\n",
+    "            stderr=subprocess.DEVNULL).decode().strip().splitlines()\n",
+    "        if out:\n",
+    "            return float(out[0].strip())\n",
+    "    except Exception:\n",
+    "        pass\n",
+    "    return None\n",
+    "\n",
+    "cap = gpu_capability()\n",
+    "DEVICE = 'cuda' if (cap is not None and cap >= 7.0) else 'cpu'\n",
+    "print('GPU compute capability:', cap, '-> training device:', DEVICE)\n",
 ]
 
 SETUP = [
@@ -81,14 +101,13 @@ RUN = [
     "# Run the converged training (now on disk). It trains BOTH the latent\n",
     "# model (sequential SSM think + FFN speak) and an equal-capacity\n",
     "# token-by-token baseline on the same long-horizon reasoning task, then\n",
-    "# reports val exact-match QA for each. The latent model builds its state\n",
-    "# ONCE from the source (think once, speak many); the baseline re-encodes\n",
-    "# the source per question. This is the 'latent vs tokens' test. Output\n",
-    "# streams here so kaggle_ctl.py can watch STAGE: lines live. Outputs\n",
-    "# (modules_report.json) land in CWD. Runs on CPU (reliable on Kaggle).\n",
+    "# reports val exact-match per query type (WHERE / AT / SAME) for each.\n",
+    "# The latent model builds its state ONCE from the source (think once,\n",
+    "# speak many); the baseline re-encodes the full source for every query.\n",
+    "# DEVICE is chosen in the COMPAT cell (cuda on T4, cpu on P100).\n",
     "import sys, os\n",
-    "cmd = (f\"{sys.executable} -u train_converged.py --device cpu \"\n",
-    "       f\"--n_samples 2500 --epochs 16 --K 2 \"\n",
+    "cmd = (f\"{sys.executable} -u train_converged.py --device {DEVICE} \"\n",
+    "       f\"--n_samples 2500 --epochs 14 --K 2 \"\n",
     "       f\"--d_emb 128 --d_hidden 256 --d_state 48 --max_events 16\")\n",
     "print('STAGE: launch', cmd)\n",
     "os.system(cmd)\n",
@@ -106,21 +125,23 @@ SUMMARY = [
 
 cells = [
     md([
-        "# Hybrid Latent-State Language Model - Converged Design (Kaggle CPU)\n",
+        "# Hybrid Latent-State Language Model - Converged Design\n",
         "\n",
         "Self-contained wrapper around `train_converged.py`, which trains BOTH the\n",
         "latent model (sequential SSM think + FFN speak) and an equal-capacity\n",
         "token-by-token baseline on the same **long-horizon** reasoning task, then\n",
-        "reports val exact-match QA for each -- the 'latent thinking vs tokens'\n",
-        "test. The latent model builds its state ONCE from the source (think once,\n",
-        "speak many); the baseline re-encodes the full source for every question.\n",
+        "reports val exact-match per query type (WHERE / AT / SAME) for each --\n",
+        "the 'latent thinking vs tokens' test. The latent model builds its state\n",
+        "ONCE from the source (think once, speak many); the baseline re-encodes\n",
+        "the full source for every question.\n",
         "\n",
-        "Runs on Kaggle CPU (the P100 GPU path's torch downgrade was hanging on\n",
-        "the pytorch index, so CPU is the reliable measurement environment here).\n",
+        "Device: CUDA on T4 (sm>=7.0, default cu121 torch); CPU on P100\n",
+        "(sm<7.0) where cu121 would crash -- no torch downgrade (the pytorch\n",
+        "index cu118 install HUNG on Kaggle's network).\n",
         "\n",
         "**Hypothesis:** separating thinking (latent state updates) from speaking\n",
         "(token generation) lets the model answer many queries from one compressed\n",
-        "state, beating an equal-size autoregressive model on long-horizon recall.\n",
+        "state, beating an equal-size autoregressive model on long-horizon reasoning.\n",
     ]),
     code(COMPAT),
     code(SETUP),
@@ -135,7 +156,7 @@ cells.append(code(SUMMARY))
 nb = {
     "cells": cells,
     "metadata": {
-        "accelerator": "none",
+        "accelerator": "gpu",
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3.10"},
     },
@@ -146,4 +167,4 @@ nb = {
 with open("notebook.ipynb", "w") as f:
     json.dump(nb, f, indent=1)
 print(f"notebook.ipynb generated - {len(nb['cells'])} cells")
-print("Self-contained wrapper: embeds src/ + train_converged.py, runs train_converged.py (CPU)")
+print("Self-contained wrapper: embeds src/ + train_converged.py, runs train_converged.py")

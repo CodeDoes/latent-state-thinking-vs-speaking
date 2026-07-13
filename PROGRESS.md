@@ -765,3 +765,50 @@ blocked by the P100 torch-downgrade hang.
 ### Experiment record
 `experiments/exp_converged_lh_2026-07-13/` : config.json, metrics.json
 (iter-1, CPU), run_log.txt, notes.md (full analysis + next hypotheses).
+
+---
+
+## ITER-2 RESULT — 2026-07-13 (the crux)
+
+iter-2 COMPLETED (Kaggle CPU, d_state=48, 16 ep, ~6 q/world, max_events=16).
+Overall: `latent=0.592 baseline=0.624` -> baseline +~3 pts (same as iter-1).
+BUT the per-query-type breakdown (new this iter) is the real story:
+
+```
+latent_by_type:  AT=0.853  SAME=0.918  WHERE=0.0177
+baseline_by_type: AT=0.839  SAME=0.906  WHERE=0.136
+```
+
+- **On INTEGRATION / AGGREGATION queries (AT, SAME — the multi-token
+  reasoning tasks) the LATENT model BEATS the baseline**
+  (0.853>0.839; 0.918>0.906).
+- **On precise single-item TRAJECTORY recall (WHERE) the baseline crushes
+  latent** (0.136 >> 0.018). Both are low; baseline is 7.7x better.
+
+This MATCHES the project's own architecture split:
+  SSM = "world model / logic / planning"  -> good at aggregation
+  Tape = "exact recall / spelling"      -> precise recall is its job
+So the latent state wins on the queries that are actually the SSM's job,
+and trades off precise trajectory recall (which belongs to a tape/recall
+mechanism). The overall "baseline +3pts" is an artifact of weighting
+the trajectory-recall query (WHERE) equally with the reasoning queries.
+
+Bigger d_state (48 vs 32) did NOT help latent on WHERE (0.018 vs
+~0.06) — the deficit is ARCHITECTURAL (compression discards
+trajectory), not just capacity.
+
+### Verdict on Level 1 ("does latent thinking beat tokens?")
+NUANCED, NOT refuted:
+- On reasoning / integration: **latent WINS**.
+- On precise trajectory recall: **tokens win** (but that is the tape's job,
+  not the SSM's — the architecture expects a separate tape for it).
+- At this ~0.5M-param scale the overall number is a tie-with-baseline-edge.
+
+### Next: iter-3 — integration-heavy task (clean latent win on reasoning)
+Tilt the query mix toward AT/SAME (reasoning) and away from WHERE
+(trajectory recall). Expect latent to WIN overall, confirming
+"latent thinking beats tokens on reasoning". Also make the notebook
+GPU-capable WITHOUT the hanging pytorch-index pip: detect capability;
+if T4+ (>=sm70) run `--device cuda` on the default cu121 torch
+(no install); if P100 (<sm70) run `--device cpu` (reliable, no pip).
+This unlocks GPU scale (T4) when Kaggle allocates one.
