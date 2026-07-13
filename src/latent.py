@@ -126,7 +126,8 @@ def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
             a = others if others else ["NONE"]
         queries.append((q, a))
 
-    return {"source": source, "queries": queries, "k": len(events)}
+    return {"source": source, "queries": queries, "k": len(events),
+            "loc_of": loc_of, "items": items}
 
 
 def compute_Lstar(cats, n_items=6, bits_per_float=16):
@@ -139,10 +140,11 @@ def compute_Lstar(cats, n_items=6, bits_per_float=16):
 
 # ----------------- latent model: sequential think + speak -----------------
 class LatentModel(nn.Module):
-    def __init__(self, vocab, d_emb=128, d_state=64, d_der=8, d_hidden=256):
+    def __init__(self, vocab, d_emb=128, d_state=64, d_der=8, d_hidden=256, n_locs=32):
         super().__init__()
         self.vocab = len(vocab)
         self.d_state = d_state
+        self.n_locs = n_locs
         self.der_emb = nn.Embedding(2, d_der)
         self.emb = nn.Embedding(self.vocab, d_emb, padding_idx=0)
         self.s0 = nn.Parameter(torch.zeros(d_state))
@@ -159,6 +161,10 @@ class LatentModel(nn.Module):
                              batch_first=True)
         self.out = nn.Linear(d_hidden, self.vocab)
         self.comp = nn.Linear(d_hidden, 1)
+        # T06 auxiliary reconstruction head: predict each item's final
+        # location from the latent state (forces the state to encode the
+        # trajectory/relational info AT/SAME queries need).
+        self.recon = nn.Linear(d_state + d_emb, n_locs)
 
     # ---- thinking: fold the token sequence into a single latent state ----
     def think_state(self, ids, der_id, K=1):
@@ -221,6 +227,34 @@ class LatentModel(nn.Module):
         if out_ids and out_ids[-1] == self.eos:
             out_ids = out_ids[:-1]
         return out_ids
+
+    # ---- T06 auxiliary reconstruction: item -> final location from state ----
+    def recon_loss(self, s, loc_of, tok):
+        """Force the latent state to encode each item's final location.
+
+        AT ('is O3 at L5?') and SAME ('is O3 with O7?') can only be answered
+        if the state retains the trajectory/relational mapping item->location,
+        which the bare next-token objective discards (T04). This auxiliary CE
+        over items makes that mapping explicit in `s`, so the speaker can
+        decode relational answers instead of collapsing to 'NONE'.
+        """
+        if not loc_of:
+            return torch.zeros((), device=s.device)
+        s_flat = s.squeeze(0)                      # [d_state]
+        losses = []
+        for it, lk in loc_of.items():
+            it_id = tok.stoi.get(it)
+            if it_id is None or lk not in tok.cats["loc"]:
+                continue
+            lk_idx = tok.cats["loc"].index(lk)   # 0..n_locs-1, NOT vocab index
+            ie = self.emb(torch.tensor(it_id, device=s.device))   # [d_emb]
+            logits = self.recon(torch.cat([s_flat, ie], dim=-1))  # [n_locs]
+            losses.append(F.cross_entropy(
+                logits.unsqueeze(0),
+                torch.tensor(lk_idx, device=s.device).unsqueeze(0)))
+        if not losses:
+            return torch.zeros((), device=s.device)
+        return torch.stack(losses).mean()
 
 
 # ----------------- baseline: token-by-token AR (no latent) -----------------

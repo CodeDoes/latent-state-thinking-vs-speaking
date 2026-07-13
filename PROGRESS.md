@@ -63,7 +63,7 @@ precise recall (WHERE) because the current design has **no tape**.
 | T03 | Label non-uniqueness drowns signal (NONE collapse) | `03-dataset-label-nonuniqueness.md` | ✅ confirmed |
 | T04 | Normally-Empty latent-state vectors | `04-normally-empty-state-vectors.md` | ✅ rate confirmed / arch untested |
 | T05 | Uniqueness-weighted loss `w(a)=-log2 p(a)` | `05-uniqueness-weighted-loss.md` | 🔶 tested (partial: latent WHERE 0.018→0.041, 2.3×↑; AT/SAME still NONE-cheat, collapse architectural) |
-| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | 🔶 in progress (recon head added, running) |
+| T06 | Auxiliary state-tracking (reconstruction) loss | `06-auxiliary-reconstruction-loss.md` | 🔶 tested (latent AT 0.807→0.895, above NONE-cheat 0.869; SAME/WHERE need more) |
 | T07 | Capacity is NOT the bottleneck | `07-capacity-not-bottleneck.md` | ❌ refuted |
 | T08 | Gradual novelty + local-GPU fast iteration | `08-gradual-novelty-local-gpu.md` | ✅ confirmed |
 
@@ -75,7 +75,8 @@ precise recall (WHERE) because the current design has **no tape**.
 | gpu-throughput benchmark (inline) | 2026-07-13 | T08 | RTX 2050: 63.9k tok/s (d256), 10.7k (d768); 5k×20 run ≈15–20 min | ✅ confirmed |
 | `bench.py --quick` baseline (local) | 2026-07-13 | T08 (end-to-end path) | baseline runs end-to-end; 0.000 at tiny scale (expected sanity) | ✅ sanity OK |
 | `exp_t05_local_2026-07-13` (n=600, 8ep, d48, RTX2050) | 2026-07-13 | T05, T03 | lat 0.596 vs base 0.617; lat WHERE 0.041 (2.3×↑), AT/SAME still ~0.8 NONE-cheat; T05 insufficient alone | ✅ done |
-| `exp_t06_local_2026-07-13` (recon head, alone) | 2026-07-13 | T06, T04 | RUNNING | 🟡 in progress |
+| `exp_t06_local_2026-07-13` (recon head, alone) | 2026-07-13 | T06, T04 | lat 0.626 vs base 0.650; latent AT 0.895 (>cheat 0.869, >base 0.886!); SAME/WHERE ~flat | ✅ done |
+| **proposed** T05+T06 combined | — | T05+T06 | queued (running) | 🟡 planned |
 | **proposed** iter-3 integration-heavy mix | — | T02, T01 | not run | 🟡 planned |
 
 ## Research Log (condensed milestones)
@@ -108,7 +109,8 @@ precise recall (WHERE) because the current design has **no tape**.
    the guarded baseline learns on the local GPU.
 2. **T05 applied + tested** (partial: helped latent WHERE, did NOT break
    AT/SAME NONE-collapse → collapse is architectural, T04). **T06 (recon head)
-   in progress** — forces the latent state to encode item→location so AT/SAME
-   becomes decodable; running locally now (RTX 2050).
+   tested alone**: latent AT 0.807→0.895 (above cheat ceiling 0.869, above
+   baseline AT 0.886) — reconstruction forces item→location into the state.
+   **T05+T06 combined run queued** (the intended fix); then iter-3 mix.
 3. **iter-3** integration-heavy mix → expect latent to win overall (confirms T02).
 4. **Scale** to ~20M params on local GPU (T08) for the first-night win condition.

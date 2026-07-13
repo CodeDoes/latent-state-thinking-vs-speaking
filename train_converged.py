@@ -42,6 +42,10 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--max_events", type=int, default=14)
     ap.add_argument("--val_frac", type=float, default=0.1)
+    ap.add_argument("--recon_w", type=float, default=0.0,
+                    help="T06 auxiliary reconstruction loss weight (0 = off)")
+    ap.add_argument("--no_t05", action="store_true",
+                    help="disable T05 uniqueness weighting (uniform answer weights)")
     args = ap.parse_args()
     if args.quick:
         args.n_samples = 400
@@ -87,9 +91,12 @@ def main():
     print(f"T05 uniqueness weights: {len(ans_w)} distinct answers | "
           f"NONE weight={ans_w.get('NONE', 0.0):.3f} "
           f"mean={sum(ans_w.values()) / max(1, len(ans_w)):.3f}")
+    if args.no_t05:
+        ans_w = {a: 1.0 for a in ans_w}
+        print("T05 disabled (--no_t05): uniform answer weights")
 
     latent = LatentModel(vocab, d_emb=args.d_emb, d_state=d_state,
-                         d_hidden=args.d_hidden).to(dev)
+                         d_hidden=args.d_hidden, n_locs=len(cats["loc"])).to(dev)
     latent.bos = tok.bos
     latent.eos = tok.eos
     baseline = BaselineAR(vocab, d_emb=args.d_emb, d_hidden=args.d_hidden).to(dev)
@@ -115,6 +122,8 @@ def main():
             s_src = latent.think_state(src_t, der_src, args.K)   # L_src [1,d_state]
             optL.zero_grad()
             ls = 0.0
+            if args.recon_w > 0:
+                ls = ls + args.recon_w * latent.recon_loss(s_src, s.get("loc_of", {}), tok)
             for (q, a) in s["queries"]:
                 q_ids = tok.enc(q)
                 a_ids = tok.enc(a)
@@ -194,7 +203,8 @@ def main():
         "epochs": args.epochs,
         "K": args.K,
         "max_events": args.max_events,
-        "T05_uniqueness_weighted": True,
+        "T05_uniqueness_weighted": not args.no_t05,
+        "T06_recon_weight": args.recon_w,
         "params_latent": n_lat,
         "params_baseline": n_base,
         "val_latent_acc": accL / n,
