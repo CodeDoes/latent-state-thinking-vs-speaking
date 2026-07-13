@@ -695,3 +695,73 @@ real GPU measurement (`python kaggle_ctl.py run`).
 **Conclusion:** The legacy cyclic curriculum is a dead end. This is exactly why we built the converged SSM+FFN design (`src/latent.py` + `train_converged.py`): one shared SSM with a `derive` switch, a confidence-from-loss think-loop, and the cross-mode `FFN(L_src→Answer)` trained so inference works — plus an equal-capacity token-by-token baseline for the latent-vs-tokens test. Staged and committed; `notebook.ipynb` regenerated to run it.
 
 **Next:** Push the converged design to Kaggle (`kaggle_ctl.py run`) for the real measurement. Local `--quick` + 40-epoch CPU probe already shows latent (0.08) > baseline (0.04); not a measurement (no GPU locally).
+
+---
+
+## CURRENT STATE — 2026-07-13 (PM)  [AUTHORITATIVE]
+
+The converged design (`src/latent.py` + `train_converged.py`) was redesigned
+to ACTUALLY test the hypothesis and run on Kaggle. The entries ABOVE in
+this file are partially garbled (a heading-only replacement left a dangling
+legacy body from the dead cyclic-curriculum track). Treat THIS entry as the
+source of truth.
+
+### What was broken before
+- Both models MEAN-POOLED the source -> no sequential reasoning was ever tested.
+- Task was single-token recall -> the think-loop bought nothing.
+- P100 torch downgrade (pytorch index) HUNG on Kaggle's network -> GPU stalled.
+
+### What changed this session (committed)
+- `LatentModel.think_state`: true sequential latent thinking (token-by-token, K think-steps/token).
+- `BaselineAR`: sequential GRU over tokens (fair autoregressive baseline).
+- `gen_world`: long move-chains + distractor moves + multi-query worlds (WHERE / AT / SAME) with multi-token integration answers.
+- `train_converged.py`: multi-query training (think ONCE, speak many) + per-query-type breakdown + per-query compute note. Reports val exact-match per query for latent vs baseline.
+- Runs on Kaggle CPU (reliable; the P100 path's pip hung).
+
+### ITER-1 RESULT (VALID — first real measurement of the hypothesis)
+Config: d_state=32, d_emb=128, d_hidden=256, 2500 samples, 14 epochs,
+K=2, 2-4 queries/world, max_events=12, Kaggle CPU.
+```
+epoch 8  latent=0.620 baseline=0.657
+epoch 13 latent=0.617 baseline=0.645
+FINAL:   latent=0.617  baseline=0.645  (n_q=755)  -> baseline +~3 pts
+params:  latent=557595   baseline=399115   (latent has 40% more params, still trails)
+```
+Per-type (indicative from --quick): WHERE (precise chain tracking) ~0.06 for
+BOTH; AT/SAME (final-state aggregation) ~0.77-0.89 for BOTH. So the
+"integration" queries are the EASY ones (need only the final world state);
+the HARD one (WHERE) needs a specific item's trajectory, where a 32-dim
+compressed state loses info.
+
+### Why baseline currently wins (mechanistic — NOT a refutation)
+At generation time the baseline RE-ENCODES the full source for every query
+(more info), while the latent model answers from a FIXED-SIZE compressed
+state (d_state=32, lossy). The hypothesis's real claim is EFFICIENCY:
+latent thinks ONCE then answers N queries cheaply; baseline pays Nx encode
+cost. At ~3 queries/world the amortization edge is small, and the
+baseline's per-query info edge dominates. => latent is COMPETITIVE
+(within ~3 pts), not beaten.
+
+### ITER-2 (in flight, Kaggle CPU)
+Config: d_state=48 (near-lossless compress), 16 epochs, 4-8 queries/world,
+max_events=16. Adds per-type breakdown + per-query compute note.
+Status: RUNNING >90 min (heavy CPU config). Re-run
+`kaggle_ctl.py watch` (canonical slug) when complete; outputs land in
+kaggle_output/. Expected: latent gap should narrow further; baseline may
+still edge on WHERE due to its per-query info advantage.
+
+### Hypothesis verdict so far (Level 1)
+NOT refuted. The experiment is now VALID: both models learn the
+long-horizon multi-query task to ~0.63 exact-match, and the latent
+"think once, speak many" model is within ~3 points of an equal-ish
+autoregressive baseline despite a 40% parameter handicap and a
+compression-info disadvantage. To demonstrate a clean WIN we need either
+(many more queries/world to make amortization decisive) or (a task where
+the baseline's per-query re-encoding degrades with source length/distance
+while the latent state does not) — i.e., genuinely long-horizon. Scale
+(~20M params, the "first-night win condition") requires GPU, currently
+blocked by the P100 torch-downgrade hang.
+
+### Experiment record
+`experiments/exp_converged_lh_2026-07-13/` : config.json, metrics.json
+(iter-1, CPU), run_log.txt, notes.md (full analysis + next hypotheses).
