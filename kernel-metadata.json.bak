@@ -1,0 +1,15 @@
+{
+  "title": "Hybrid Latent-State Language Model",
+  "id": "kitastro/hybrid-latent-state-language-model",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "gpu_type": "t4",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

@@ -104,8 +104,7 @@ def gen_world(tok, rng, max_events=14, n_items_range=(3, 6)):
     source = [t for (it, l) in events for t in (it, l, ".")]
 
     queries = []
-    nq = rng.randint(4, 8)  # more queries/world -> amortized thinking matters
-    for _ in range(nq):
+    for _ in range(rng.randint(2, 4)):
         qt = rng.choice(["WHERE", "AT", "SAME"])
         if qt == "WHERE":
             it = rng.choice(items)
