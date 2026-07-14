@@ -79,7 +79,9 @@ eval, NOT Kaggle:**
   - location : **0.23-0.27** (random 0.10) ✅ WHERE gap closes
   - inventory: **0.37** (random 0.10) ✅ derived as inverse of holder relation
   - transfer : **0.19-0.21** (random 0.10) ✅ 2-hop item->holder->location
-  - recall   : not yet validated (generative decode path; answer-decoder shape bug)
+  - recall   : runs end-to-end now (answer-decoder shape bug fixed) but scores
+    ~0 -- the last-mention slot does not retain the early password after long
+    distractor streams; needs an event-aware writer (known depth gap)
 
 **Expanded puzzle suite (all derived reads off loc_head/holder_head, no new
 heads).** Added to `src/dataset.py` + eval in `src/world_state.py`: `holder`

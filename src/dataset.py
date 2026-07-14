@@ -672,9 +672,10 @@ def generate_dataset(
             "most_items": 0.07,
             "empty_loc": 0.05,
             "has_item": 0.04,
-            # generative / unvalidated decoder paths (kept selectable via
-            # single-task, but excluded from the mixed default until the
-            # answer decoder shape bug is fixed):
+            # generative / selectable but weak: the single-pass last-mention
+            # slot does not retain the early password amid long distractors, so
+            # recall/story score ~0 until the writer is made event-aware (known
+            # depth gap). The answer-decoder shape bug that crashed them is fixed.
             "recall": 0.0,
             "story": 0.0,
         }

@@ -344,13 +344,20 @@ class WorldModel(nn.Module):
     @torch.no_grad()
     def generate_answer(self, ent_slot, item_slot, holder_logits, question_text,
                         tokenizer, max_tokens=48, eos_id=None, pad_id=None):
+        # C must be a d_state-dim *encoded* question vector, mirroring
+        # _question_vec used in training (which encodes the subject name, not
+        # the raw question tokens). Passing token ids here was the shape bug.
+        device = ent_slot.device
+        subj_name, _, _ = extract_query({"question": question_text})
+        name = subj_name if subj_name in NAME_TO_I else NAME_POOL[0]
+        ids = torch.tensor(tokenizer.encode(" " + name, max_len=None),
+                           dtype=torch.long, device=device).unsqueeze(0)
+        Cc = self.encoder.states(ids)[:, -1, :]            # [1, d_state]
         A = ent_slot.unsqueeze(0); Bb = ent_slot.unsqueeze(0)
-        Cc = torch.tensor(tokenizer.encode(" " + question_text, max_len=None),
-                          dtype=torch.long).unsqueeze(0)
         D = self.composer(A, Bb, Cc)
-        ids = self.ans_dec.generate(D, max_tokens=max_tokens, eos_id=eos_id,
-                                    pad_id=pad_id)
-        return tokenizer.decode(ids)
+        ids_out = self.ans_dec.generate(D, max_tokens=max_tokens, eos_id=eos_id,
+                                        pad_id=pad_id)
+        return tokenizer.decode(ids_out)
 
 
 # ---------------------------------------------------------------------------
