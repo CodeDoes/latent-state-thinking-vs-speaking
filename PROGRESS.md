@@ -79,7 +79,18 @@ eval, NOT Kaggle:**
   - location : **0.23-0.27** (random 0.10) ✅ WHERE gap closes
   - inventory: **0.37** (random 0.10) ✅ derived as inverse of holder relation
   - transfer : **0.19-0.21** (random 0.10) ✅ 2-hop item->holder->location
-  - recall   : not yet validated (generative decode path)
+  - recall   : not yet validated (generative decode path; answer-decoder shape bug)
+
+**Expanded puzzle suite (all derived reads off loc_head/holder_head, no new
+heads).** Added to `src/dataset.py` + eval in `src/world_state.py`: `holder`
+(who has item), `colocation` (who shares a location), `count_people`,
+`which_loc_most` (argmax aggregation), `most_items` (argmax aggregation),
+`empty_loc`, `has_item` (yes/no). A mixed `--task all` run (1000 samples, d=64,
+15ep) gives has_item 0.79, empty_loc 0.59, count_people 0.48, which_loc_most
+0.34, holder 0.40, colocation 0.32, transfer 0.18, location 0.15 (all above
+random 0.10); combinatorial exact-match (inventory/most_items) is hard at
+~100 samples/task and climbs with scale. Generative tasks (recall/story) are
+excluded from the mixed default until the answer-decoder shape bug is fixed.
 
 The location win directly confirms the user's `(index, current_location_at_index)`
 framing: once the encoder is forced to represent location words and the slot

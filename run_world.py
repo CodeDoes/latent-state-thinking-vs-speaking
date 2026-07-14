@@ -27,8 +27,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.dataset import generate_dataset
 from src.tokenizer import CharTokenizer
 from src.world_state import (WorldTrainConfig, train_world, run_world_qa,
-                            NAME_TO_I, NAME_POOL, I_TO_LOC, I_TO_ITEM, I_TO_NAME,
-                            ITEM_TO_I, N_LOCS, N_ITEMS, N_NAMES, extract_query)
+                            NAME_TO_I, NAME_POOL, LOC_POOL, LOC_TO_I, I_TO_LOC,
+                            I_TO_ITEM, I_TO_NAME, ITEM_TO_I, N_LOCS, N_ITEMS,
+                            N_NAMES, extract_query)
 from reverse_templates import reverse_templates
 
 
@@ -66,11 +67,7 @@ def main():
           f"epochs={args.epochs} n={args.n_samples} -> {exp_dir}")
 
     # ---- data ----
-    if args.task == "all":
-        weights = None
-    else:
-        weights = {t: 0.0 for t in ["location", "inventory", "transfer", "recall"]}
-        weights[args.task] = 1.0
+    weights = None if args.task == "all" else {args.task: 1.0}
     dataset = generate_dataset(n_samples=args.n_samples, seed=args.seed,
                                task_weights=weights,
                                location_max_chars=args.max_chars,
@@ -100,40 +97,56 @@ def main():
     # ---- samples ----
     samples = []
     dbg = []
-    for s in qa[:12]:
+    for s in qa[:20]:
         ent_slots, item_slots, holder_logits = model.write(s["narrative"], tokenizer, device)
-        subj_name, item_name = extract_query(s)
+        subj_name, item_name, loc_name = extract_query(s)
         subj = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
-        ent = ent_slots[subj]                       # [d_state]
-        hl = holder_logits                          # [N_ITEMS, N_NAMES]
+        loc_pred = model.loc_head(ent_slots).argmax(-1)                       # [N_NAMES]
+        holder_pred = model.holder_head(
+            item_slots[:, :N_NAMES].reshape(-1, N_NAMES)).argmax(-1)          # [N_ITEMS]
         task = s["task_type"]
         if task == "location":
-            gen = I_TO_LOC[model.loc_head(ent.unsqueeze(0)).argmax(-1).item()]
+            gen = I_TO_LOC[loc_pred[subj].item()]
             if len(dbg) < 6 and subj_name in NAME_POOL:
-                topk = model.loc_head(ent.unsqueeze(0))[0].topk(3).indices.tolist()
-                dbg.append((subj_name, s["answer"], gen,
-                            [(I_TO_LOC[k], round(model.loc_head(ent.unsqueeze(0))[0][k].item(), 2)) for k in topk]))
+                topk = model.loc_head(ent_slots[subj].unsqueeze(0))[0].topk(3).indices.tolist()
+                dbg.append((subj_name, "loc", s["answer"], gen,
+                            [(I_TO_LOC[k], round(model.loc_head(ent_slots[subj].unsqueeze(0))[0][k].item(), 2)) for k in topk]))
         elif task == "inventory":
-            hl = model.holder_head(item_slots[:, :N_NAMES].reshape(-1, N_NAMES))
-            holders = hl.argmax(-1)
-            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
+            items = sorted(I_TO_ITEM[i] for i in range(N_ITEMS) if holder_pred[i] == subj)
             gen = " and ".join(items) if items else "nothing"
-            if len(dbg) < 6 and subj_name in NAME_POOL:
-                dbg.append((subj_name, "inv", s["answer"], gen,
-                            [(I_TO_ITEM[i], I_TO_NAME[holders[i].item()])
-                             for i in range(N_ITEMS) if holders[i] == subj]))
         elif task == "transfer":
-            if item_name in ITEM_TO_I:
-                iidx = ITEM_TO_I[item_name]
-                islot = item_slots[iidx, :N_NAMES].unsqueeze(0)
-                holder = model.holder_head(islot).argmax(-1).item()
-                ent2 = ent_slots[holder]
-                gen = I_TO_LOC[model.loc_head(ent2.unsqueeze(0)).argmax(-1).item()]
-            else:
+            gen = I_TO_LOC[loc_pred[holder_pred[ITEM_TO_I[item_name]].item()].item()] if item_name in ITEM_TO_I else ""
+        elif task == "holder":
+            gen = I_TO_NAME[holder_pred[ITEM_TO_I[item_name]].item()] if item_name in ITEM_TO_I else ""
+        elif task == "colocation":
+            others = sorted(I_TO_NAME[n] for n in range(N_NAMES)
+                            if n != subj and loc_pred[n] == loc_pred[subj])
+            gen = " and ".join(others) if others else "nobody"
+        elif task == "count_people":
+            gen = str(int((loc_pred == LOC_TO_I[loc_name]).sum().item())) if loc_name in LOC_TO_I else ""
+        elif task == "which_loc_most":
+            best, best_loc = -1, LOC_TO_I[LOC_POOL[0]]
+            for l in LOC_POOL:
+                li = LOC_TO_I[l]; c = int((loc_pred == li).sum().item())
+                if c > best:
+                    best, best_loc = c, li
+            gen = I_TO_LOC[best_loc]
+        elif task == "most_items":
+            best, best_name = -1, 0
+            for n in NAME_POOL:
+                ni = NAME_TO_I[n]; c = int((holder_pred == ni).sum().item())
+                if c > best:
+                    best, best_name = c, ni
+            gen = I_TO_NAME[best_name]
+        elif task == "empty_loc":
+            gen = ("yes" if int((loc_pred == LOC_TO_I[loc_name]).sum().item()) == 0 else "no")
+            if loc_name not in LOC_TO_I:
                 gen = ""
+        elif task == "has_item":
+            gen = "yes" if (item_name in ITEM_TO_I and holder_pred[ITEM_TO_I[item_name]] == subj) else ("no" if item_name in ITEM_TO_I else "")
         else:
-            item = item_slots[0]
-            gen = model.generate_answer(ent, item, hl, s.get("question", ""), tokenizer)
+            gen = model.generate_answer(ent_slots[subj], item_slots[0], holder_logits,
+                                        s.get("question", ""), tokenizer)
         samples.append({"task": task, "question": s.get("question"),
                         "expected": s["answer"], "generated": gen,
                         "correct": gen.strip().lower() == s["answer"].strip().lower()})

@@ -62,13 +62,13 @@ I_TO_LOC = {i: l for l, i in LOC_TO_I.items()}
 I_TO_ITEM = {i: it for it, i in ITEM_TO_I.items()}
 
 
-def extract_query(sample: dict) -> Tuple[Optional[str], Optional[str]]:
-    """Pull the queried entity / item from the QUESTION text.
+def extract_query(sample: dict) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Pull the queried entity / item / location from the QUESTION text.
 
-    The dataset does not store explicit `subject`/`item` keys, but the question
-    always names exactly one entity (location/inventory/recall) or one item
-    (transfer). We recover them by scanning the question against the canonical
-    pools. Returns (subject_name, item_name); either may be None.
+    The dataset does not store explicit `subject`/`item`/`location` keys, but
+    the question always names them from the canonical pools. We recover them
+    by scanning the question. Returns (subject_name, item_name, loc_name);
+    any may be None.
     """
     q = sample.get("question", "") or ""
     subj = None
@@ -81,7 +81,12 @@ def extract_query(sample: dict) -> Tuple[Optional[str], Optional[str]]:
         if re.search(r"\b" + re.escape(it) + r"\b", q):
             item = it
             break
-    return subj, item
+    loc = None
+    for l in LOC_POOL:
+        if re.search(r"\b" + re.escape(l) + r"\b", q):
+            loc = l
+            break
+    return subj, item, loc
 
 
 # ---------------------------------------------------------------------------
@@ -274,19 +279,55 @@ class WorldModel(nn.Module):
     @torch.no_grad()
     def read_answer(self, ent_slot, item_slot, holder_logits, sample) -> str:
         task = sample["task_type"]
-        subj_name, item_name = extract_query(sample)
+        subj_name, item_name, loc_name = extract_query(sample)
+        subj = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
+        # holder_logits: [N_ITEMS, N_NAMES] per-item holder prediction.
+        holders = holder_logits.argmax(-1)                        # [N_ITEMS]
+        # per-entity location prediction (loc_head over the entity slots)
+        loc_pred = self.loc_head(ent_slot).argmax(-1)            # [N_NAMES]
         if task == "location":
-            return I_TO_LOC[self.loc_head(ent_slot.reshape(1, -1)).argmax(-1).item()]
+            return I_TO_LOC[loc_pred[subj].item()]
         if task == "inventory":
-            # inventory = inverse of the holder relation (holder_logits is the
-            # per-item holder prediction computed by write())
-            holders = holder_logits.argmax(-1)                        # [N_ITEMS]
-            items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
+            items = sorted(I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj)
             return " and ".join(items) if items else "nothing"
         if task == "transfer":
             if item_name in ITEM_TO_I:
-                islot = item_slot[: self.name_dim].reshape(1, -1)
-                return I_TO_NAME[self.holder_head(islot).argmax(-1).item()]
+                holder = holders[ITEM_TO_I[item_name]].item()
+                return I_TO_LOC[loc_pred[holder].item()]
+            return ""
+        if task == "holder":
+            if item_name in ITEM_TO_I:
+                return I_TO_NAME[holders[ITEM_TO_I[item_name]].item()]
+            return ""
+        if task == "colocation":
+            others = [I_TO_NAME[n] for n in range(N_NAMES)
+                      if n != subj and loc_pred[n] == loc_pred[subj]]
+            return " and ".join(sorted(others)) if others else "nobody"
+        if task == "count_people":
+            if loc_name in LOC_TO_I:
+                return str(int((loc_pred == LOC_TO_I[loc_name]).sum().item()))
+            return ""
+        if task == "which_loc_most":
+            best, best_loc = -1, LOC_TO_I[LOC_POOL[0]]
+            for l in LOC_POOL:
+                li = LOC_TO_I[l]; c = int((loc_pred == li).sum().item())
+                if c > best:
+                    best, best_loc = c, li
+            return I_TO_LOC[best_loc]
+        if task == "most_items":
+            best, best_name = -1, 0
+            for n in NAME_POOL:
+                ni = NAME_TO_I[n]; c = int((holders == ni).sum().item())
+                if c > best:
+                    best, best_name = c, ni
+            return I_TO_NAME[best_name]
+        if task == "empty_loc":
+            if loc_name in LOC_TO_I:
+                return "yes" if int((loc_pred == LOC_TO_I[loc_name]).sum().item()) == 0 else "no"
+            return ""
+        if task == "has_item":
+            if item_name in ITEM_TO_I and subj_name in NAME_TO_I:
+                return "yes" if holders[ITEM_TO_I[item_name]] == subj else "no"
             return ""
         # recall: generative (handled by run_world_qa via generate_answer)
         return ""
@@ -374,7 +415,7 @@ def prepare_sample(sample: dict, tokenizer: CharTokenizer, device) -> Prepared:
             item_tok.append((sp[-1][1] - 1, ITEM_TO_I[iw]))
 
     ans_ids = tokenizer.encode(sample["answer"], max_len=None)
-    subj_name, _ = extract_query(sample)
+    subj_name, _, _ = extract_query(sample)
     subj_idx = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
     return Prepared(narr, ent_target, item_target, ent_mask, item_mask, subj_idx,
                     loc_tok, item_tok, ans_ids)
@@ -545,30 +586,71 @@ def run_world_qa(model, qa: List[dict], tokenizer: CharTokenizer, device,
         ent_slots, item_slots, holder_logits, _, _, _ = model.write_batch(narrs, tokenizer, device)
         for j, x in enumerate(chunk):
             task = x["task_type"]
-            subj_name, item_name = extract_query(x)
+            subj_name, item_name, loc_name = extract_query(x)
             subj = NAME_TO_I.get(subj_name, 0) if subj_name in NAME_TO_I else 0
             ent = ent_slots[j, subj]          # [d_state] subject entity slot
-            hl = holder_logits[j]             # [N_ITEMS, N_NAMES]
+            # Precompute per-entity location and per-item holder predictions
+            # (all puzzles are derived reads off these two fields).
+            loc_pred = model.loc_head(ent_slots[j]).argmax(-1)            # [N_NAMES] loc idx
+            holder_pred = model.holder_head(
+                item_slots[j, :, :N_NAMES].reshape(-1, N_NAMES)).argmax(-1)  # [N_ITEMS] name idx
+
             if task == "location":
-                pred = I_TO_LOC[model.loc_head(ent.unsqueeze(0)).argmax(-1).item()]
+                pred = I_TO_LOC[loc_pred[subj].item()]
             elif task == "inventory":
-                # inventory = inverse of the holder relation
-                hl = model.holder_head(item_slots[j, :, :N_NAMES].reshape(-1, N_NAMES))
-                holders = hl.argmax(-1)                                  # [N_ITEMS]
-                items = [I_TO_ITEM[i] for i in range(N_ITEMS) if holders[i] == subj]
+                items = sorted(I_TO_ITEM[i] for i in range(N_ITEMS) if holder_pred[i] == subj)
                 pred = " and ".join(items) if items else "nothing"
             elif task == "transfer":
                 if item_name in ITEM_TO_I:
-                    iidx = ITEM_TO_I[item_name]
-                    islot = item_slots[j, iidx, :N_NAMES].unsqueeze(0)
-                    holder = model.holder_head(islot).argmax(-1).item()
-                    ent2 = ent_slots[j, holder]
-                    pred = I_TO_LOC[model.loc_head(ent2.unsqueeze(0)).argmax(-1).item()]
+                    holder = holder_pred[ITEM_TO_I[item_name]].item()
+                    pred = I_TO_LOC[loc_pred[holder].item()]
+                else:
+                    pred = ""
+            elif task == "holder":
+                if item_name in ITEM_TO_I:
+                    pred = I_TO_NAME[holder_pred[ITEM_TO_I[item_name]].item()]
+                else:
+                    pred = ""
+            elif task == "colocation":
+                others = [I_TO_NAME[n] for n in range(N_NAMES)
+                          if n != subj and loc_pred[n] == loc_pred[subj]]
+                pred = " and ".join(sorted(others)) if others else "nobody"
+            elif task == "count_people":
+                if loc_name in LOC_TO_I:
+                    li = LOC_TO_I[loc_name]
+                    pred = str(int((loc_pred == li).sum().item()))
+                else:
+                    pred = ""
+            elif task == "which_loc_most":
+                best, best_loc = -1, LOC_TO_I[LOC_POOL[0]]
+                for l in LOC_POOL:  # deterministic tie-break by pool order
+                    li = LOC_TO_I[l]
+                    c = int((loc_pred == li).sum().item())
+                    if c > best:
+                        best, best_loc = c, li
+                pred = I_TO_LOC[best_loc]
+            elif task == "most_items":
+                best, best_name = -1, 0
+                for n in NAME_POOL:  # deterministic tie-break
+                    ni = NAME_TO_I[n]
+                    c = int((holder_pred == ni).sum().item())
+                    if c > best:
+                        best, best_name = c, ni
+                pred = I_TO_NAME[best_name]
+            elif task == "empty_loc":
+                if loc_name in LOC_TO_I:
+                    li = LOC_TO_I[loc_name]
+                    pred = "yes" if int((loc_pred == li).sum().item()) == 0 else "no"
+                else:
+                    pred = ""
+            elif task == "has_item":
+                if item_name in ITEM_TO_I and subj_name in NAME_TO_I:
+                    pred = "yes" if holder_pred[ITEM_TO_I[item_name]] == subj else "no"
                 else:
                     pred = ""
             else:  # recall -- generative
                 item = item_slots[j, 0]
-                pred = model.generate_answer(ent, item, hl, x.get("question", ""), tokenizer)
+                pred = model.generate_answer(ent, item, holder_logits[j], x.get("question", ""), tokenizer)
             ok = (pred == x["answer"])
             correct += int(ok); total += 1
             acc_by[task].append(float(ok))

@@ -264,7 +264,7 @@ def generate_inventory_task(
     entities_with_items = [n for n in names if world.entities[n].inventory]
     target = random.choice(entities_with_items) if entities_with_items else random.choice(names)
     question = f"What does {target} have?"
-    answer = " and ".join(world.entities[target].inventory) if world.entities[target].inventory else "nothing"
+    answer = " and ".join(sorted(world.entities[target].inventory)) if world.entities[target].inventory else "nothing"
     meta = {"n_actions": n_actions, "n_interference": n_interf}
     return narrative, question, answer, meta
 
@@ -432,6 +432,158 @@ def generate_story_prompt(
     return prompt, ground_truth, meta
 
 
+# --- extra logic puzzles --------------------------------------------------
+# All derived reads off the same world state (location / holder). They reuse
+# the World event methods so reverse_templates still parses the narrative, and
+# their answers are computed from the final world state (which the model must
+# reconstruct). No new model heads are required -- see src/world_state.py.
+
+
+def _item_holder(world, item):
+    for nm, e in world.entities.items():
+        if item in e.inventory:
+            return nm
+    return None
+
+
+def _build_narrative(world, n_events=8, p_give=0.3, max_chars=600):
+    """Random mix of moves/pickups/drops/gives to populate the world state.
+    Events come from world.* methods so reverse_templates can still parse."""
+    sentences = [
+        f"{name} was in the {entity.location}."
+        for name, entity in world.entities.items()
+    ]
+    names = list(world.entities.keys())
+    for _ in range(n_events):
+        if len(names) >= 2 and random.random() < p_give:
+            a, b = random.sample(names, 2)
+            if (world.entities[a].location == world.entities[b].location
+                    and world.entities[a].inventory):
+                s = world.give_item(a, b)
+                if s:
+                    sentences.append(s)
+                    if random.random() < 0.4:
+                        sentences.append(world._interference())
+                    if len(" ".join(sentences)) > max_chars:
+                        break
+                    continue
+        act = random.choice(["move", "pickup", "drop"])
+        nm = random.choice(names)
+        if act == "move":
+            sentences.append(world.move_entity(nm))
+        elif act == "pickup":
+            s = world.pickup_item(nm)
+            if s:
+                sentences.append(s)
+        else:
+            s = world.drop_item(nm)
+            if s:
+                sentences.append(s)
+        if random.random() < 0.3:
+            sentences.append(world._interference())
+        if len(" ".join(sentences)) > max_chars:
+            break
+    return " ".join(s for s in sentences if s)
+
+
+def generate_holder_task(max_chars=600, **kw):
+    """Who currently holds a given item? (direct holder read)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    candidates = [it for it in world.items if _item_holder(world, it)]
+    if not candidates:
+        names = list(world.entities.keys())
+        world.give_item(names[0], names[1])
+        narrative = _build_narrative(world, n_events=6, max_chars=max_chars)
+        candidates = [it for it in world.items if _item_holder(world, it)]
+    item = random.choice(candidates)
+    question = f"Who has the {item}?"
+    answer = _item_holder(world, item)
+    return narrative, question, answer, {"task": "holder"}
+
+
+def generate_colocation_task(max_chars=600, **kw):
+    """Who shares the target's location? (set read over loc_head)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    by_loc = {}
+    for nm, e in world.entities.items():
+        by_loc.setdefault(e.location, []).append(nm)
+    shared_entities = [nm for nm, e in world.entities.items()
+                       if any(o != nm and world.entities[o].location == e.location
+                              for o in world.entities)]
+    target = (random.choice(shared_entities) if shared_entities
+              else random.choice(list(world.entities.keys())))
+    others = sorted(n for n in world.entities if n != target
+                    and world.entities[n].location == world.entities[target].location)
+    question = f"Who is with {target}?"
+    answer = " and ".join(others) if others else "nobody"
+    return narrative, question, answer, {"task": "colocation"}
+
+
+def generate_count_people_task(max_chars=600, **kw):
+    """How many entities are at a location? (count over loc_head)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    loc = random.choice(world.locations)
+    count = sum(1 for e in world.entities.values() if e.location == loc)
+    question = f"How many people are in the {loc}?"
+    answer = str(count)
+    return narrative, question, answer, {"task": "count_people"}
+
+
+def generate_which_loc_most_task(max_chars=600, **kw):
+    """Which location has the most people? (argmax over loc counts)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    counts = {loc: 0 for loc in world.locations}
+    for e in world.entities.values():
+        counts[e.location] += 1
+    best, best_loc = -1, world.locations[0]
+    for loc in LOC_POOL:  # deterministic tie-break by pool order
+        if loc in counts and counts[loc] > best:
+            best, best_loc = counts[loc], loc
+    question = "Which location has the most people?"
+    answer = best_loc
+    return narrative, question, answer, {"task": "which_loc_most"}
+
+
+def generate_most_items_task(max_chars=600, **kw):
+    """Who holds the most items? (argmax over holder-derived inventories)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    best, best_name = -1, list(world.entities.keys())[0]
+    for nm in NAME_POOL:  # deterministic tie-break
+        if nm in world.entities and len(world.entities[nm].inventory) > best:
+            best, best_name = len(world.entities[nm].inventory), nm
+    question = "Who has the most items?"
+    answer = best_name
+    return narrative, question, answer, {"task": "most_items"}
+
+
+def generate_empty_loc_task(max_chars=600, **kw):
+    """Is a location empty? (yes/no from loc counts)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    loc = random.choice(world.locations)
+    count = sum(1 for e in world.entities.values() if e.location == loc)
+    question = f"Is the {loc} empty?"
+    answer = "yes" if count == 0 else "no"
+    return narrative, question, answer, {"task": "empty_loc"}
+
+
+def generate_has_item_task(max_chars=600, **kw):
+    """Does an entity hold a specific item? (yes/no from holder)"""
+    world = World()
+    narrative = _build_narrative(world, n_events=random.randint(6, 10), max_chars=max_chars)
+    names = list(world.entities.keys())
+    target = random.choice(names)
+    item = random.choice(world.items)
+    question = f"Does {target} have the {item}?"
+    answer = "yes" if item in world.entities[target].inventory else "no"
+    return narrative, question, answer, {"task": "has_item"}
+
+
 # --- formatting helpers ---------------------------------------------------
 # These guarantee train/eval use the SAME surface form so the model learns to
 # emit its answer in the "Answer:" slot, enabling strict exact-match scoring.
@@ -510,11 +662,21 @@ def generate_dataset(
 
     if task_weights is None:
         task_weights = {
-            "location": 0.3,
-            "inventory": 0.2,
-            "transfer": 0.2,
-            "recall": 0.2,
-            "story": 0.1,
+            "location": 0.20,
+            "inventory": 0.13,
+            "transfer": 0.13,
+            "holder": 0.11,
+            "colocation": 0.11,
+            "count_people": 0.09,
+            "which_loc_most": 0.07,
+            "most_items": 0.07,
+            "empty_loc": 0.05,
+            "has_item": 0.04,
+            # generative / unvalidated decoder paths (kept selectable via
+            # single-task, but excluded from the mixed default until the
+            # answer decoder shape bug is fixed):
+            "recall": 0.0,
+            "story": 0.0,
         }
 
     tasks = list(task_weights.keys())
@@ -532,6 +694,20 @@ def generate_dataset(
             narrative, question, answer, meta = generate_transfer_task(max_chars=transfer_max_chars)
         elif task_type == "recall":
             narrative, question, answer, meta = generate_recall_task(max_chars=recall_max_chars)
+        elif task_type == "holder":
+            narrative, question, answer, meta = generate_holder_task(max_chars=location_max_chars)
+        elif task_type == "colocation":
+            narrative, question, answer, meta = generate_colocation_task(max_chars=location_max_chars)
+        elif task_type == "count_people":
+            narrative, question, answer, meta = generate_count_people_task(max_chars=location_max_chars)
+        elif task_type == "which_loc_most":
+            narrative, question, answer, meta = generate_which_loc_most_task(max_chars=location_max_chars)
+        elif task_type == "most_items":
+            narrative, question, answer, meta = generate_most_items_task(max_chars=location_max_chars)
+        elif task_type == "empty_loc":
+            narrative, question, answer, meta = generate_empty_loc_task(max_chars=location_max_chars)
+        elif task_type == "has_item":
+            narrative, question, answer, meta = generate_has_item_task(max_chars=location_max_chars)
         elif task_type == "story":
             narrative, answer, meta = generate_story_prompt()
             question = ""
