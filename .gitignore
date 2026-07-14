@@ -44,3 +44,6 @@ kernel-metadata.json
 kaggle_output_cpu/
 kaggle_output_gpu/
 *.so
+
+# keep the experiments/ dir itself (ignore its contents)
+!experiments/.gitkeep
