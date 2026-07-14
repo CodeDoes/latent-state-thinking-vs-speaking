@@ -23,7 +23,7 @@ venv/
 .env/
 
 # Checkpoints & experiment outputs
-experiments/
+experiments/*
 *.pt
 *.ckpt
 *.pth
