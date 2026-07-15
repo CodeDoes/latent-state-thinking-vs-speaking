@@ -172,7 +172,12 @@ class RwkvDataPipeline:
         self.max_len = 256
 
     def encode(self, text):
-        return [self.char_to_id.get(c, self.UNK_ID) for c in text[:self.max_len - 1]] + [self.PAD_ID] * max(0, self.max_len - len(text))
+        tokens = [self.char_to_id.get(c, self.UNK_ID) for c in text]
+        if len(tokens) > self.max_len:
+            tokens = tokens[:self.max_len]
+        else:
+            tokens = tokens + [self.PAD_ID] * (self.max_len - len(tokens))
+        return tokens
 
     def build_dataset(self, n, difficulty_params):
         """Return list of (input_ids_tensor,) tuples."""
