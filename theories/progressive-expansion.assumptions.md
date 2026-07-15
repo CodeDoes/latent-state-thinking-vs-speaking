@@ -56,11 +56,24 @@ or it could be an artifact of how simple networks self-organize (any wide
 layer will show *some* channels saturating when pushed hard — that doesn't
 mean they're junction points).
 
-**Minimal test**: Find your detected bottleneck. Insert an identical identity-
-initialized layer at the bottleneck vs. insert it at a non-saturating layer.
-Train only the new layer on the hard stimulus. If the bottleneck insertion
-converges faster, A2 gains support. If both converge at the same rate, the
-location doesn't matter — A2 is false.
+**Refinement — stable types, unstable locations**:
+Channel numbers will *not* reproduce across training runs with different
+seeds. The dataset programmes the capacity allocation but the exact channel
+assignment is arbitrary — it's a symmetry of the optimization landscape.
+What *will* be stable is the **functional role** of the bottleneck channels:
+channels that encode "entity tracking" will appear in different positions
+across runs but correlate with the same dataset-defined semantic signals.
+
+Two implications:
+1. A2 must be tested **within a single model**, not across runs.
+   Insert a layer at the detected bottleneck and verify this *specific*
+   instance of capacity pressure is relieved — don't demand cross-run
+   reproducibility of channel numbers.
+2. To verify the dataset-coding hypothesis: train the *same model architecture*
+   on two different datasets. The bottleneck pattern should change
+   *structurally*, not randomly. A shift from entity-tracking bottlenecks
+   to relation-tracking bottlenecks under a different task distribution
+   would show that the dataset programmes capacity allocation.
 
 ---
 
