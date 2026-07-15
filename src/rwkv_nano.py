@@ -43,7 +43,8 @@ class RWKVBlock(nn.Module):
         self.ln2 = nn.LayerNorm(dim)
 
         # ── Time mixing ──
-        self.time_decay = nn.Parameter(torch.zeros(dim))
+        # Initialize time_decay to -0.5 for slower decay, longer memory
+        self.time_decay = nn.Parameter(torch.full((dim,), -0.5))
         self.time_first = nn.Parameter(torch.zeros(dim))
         # Mixing ratios
         self.time_mix_k = nn.Parameter(torch.ones(dim))
