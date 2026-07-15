@@ -105,12 +105,24 @@ def evaluate_with_passes(
     return round(exact_acc, 6), round(digit_acc, 6)
 
 
+class InsertedLayer(nn.Module):
+    """Wraps an existing layer, then runs a trained (identity-init) new layer."""
+    def __init__(self, original: nn.Module, new_layer: nn.Module) -> None:
+        super().__init__()
+        self.original = original
+        self.new_layer = new_layer
+
+    def forward(self, x, *args, **kwargs):
+        z = self.original(x, *args, **kwargs)
+        return self.new_layer(z)
+
+
 def layer_insertion_accuracy(
     model: nn.Module,
     dataloader,
     layer_name: str,
     new_layer: nn.Module | None = None,
-) -> float:
+) -> tuple[float, float]:
     """Insert an identity layer at `layer_name`, run one forward pass."""
     if new_layer is None:
         raise ValueError("new_layer required")
@@ -122,19 +134,14 @@ def layer_insertion_accuracy(
     leaf_name = layer_name.split(".")[-1]
     original = getattr(parent, leaf_name)
 
-    # Swap in identity + inserted layer, keeping original weights available
-    # via one-to-one weight sharing. Here we just wrap the forward.
-    @torch.no_grad()
-    def inserted_forward(x, *args, **kwargs):
-        z = original(x, *args, **kwargs)
-        return new_layer(z)
+    wrapped = InsertedLayer(original, new_layer)
 
-    setattr(parent, leaf_name, inserted_forward)
+    setattr(parent, leaf_name, wrapped)
     try:
-        acc, da = evaluate_with_passes(model, dataloader, n_passes=1)
+        acc_exact, acc_digit = evaluate_with_passes(model, dataloader, n_passes=1)
     finally:
         setattr(parent, leaf_name, original)
-    return acc
+    return acc_exact, acc_digit
 
 
 # ──────────────────────────────────────────────────────────────────────────────
