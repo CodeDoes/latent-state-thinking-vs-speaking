@@ -262,7 +262,7 @@ def discover_hook_targets(model):
     actually transform data: Linear, Embedding, LayerNorm, RNN variants,
     and custom blocks with their own forward method.
     """
-    import torch.nn.utils.parametrize as parametrize
+    pass  # removed unused parametrize import.nn.utils.parametrize as parametrize
     
     CONTAINERS = (nn.ModuleList, nn.Sequential, nn.ModuleDict, nn.ParameterList)
     
