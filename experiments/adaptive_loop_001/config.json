@@ -1,0 +1,23 @@
+{
+  "dim": 64,
+  "patch_size": 4,
+  "enc_layers": 2,
+  "core_layers": 2,
+  "dec_layers": 2,
+  "enc_max_loops": 3,
+  "core_depth_loops": 2,
+  "dec_max_loops": 3,
+  "core_hidden_scale": 4,
+  "shared_core_state": true,
+  "dynamic_patch": false,
+  "patch_threshold": 0.7,
+  "min_patch": 2,
+  "max_patch": 16,
+  "steps": 2000,
+  "batch_size": 8,
+  "max_len": 128,
+  "lr": 0.0003,
+  "final_loss": 0.4668,
+  "params": 228357,
+  "git_commit": "86e3c01"
+}

@@ -40,6 +40,9 @@ experiment proofs in [`theories/proofs.md`](proofs.md).
   Status: **proven negatively** by
   `shared_state_unrolled_shared_010` (`cc5ccea`).
 
+- **B5** — *adaptive-loop encoder→RWKV-core→decoder avoids decoder stall.* At 228K params (encoder 2L+adaptive loops, RWKV-7 core 2L+2 depth loops, decoder 2L+adaptive loops), loss drops from 5.74 to 0.47 in 2k steps. Encoder loops adapt 1→3; decoder uses 1 loop. No mode collapse. First byte-state-byte variant without B3/B4 failure modes.
+  Status: **proven** by `adaptive_loop_001` (`86e3c01`).
+
 ## Mechanism gap (what we know we don't know)
 - Why decoder stalls when encoder doesn't (B3).
 - Whether the step-function phase-2 negative (B2) is a property
@@ -62,3 +65,9 @@ experiment proofs in [`theories/proofs.md`](proofs.md).
 4. Compare unrolled vs *recurrent* encoder/decoder (current
    shared_state scripts are unrolled; never tried an actual
    recurrent WKV-encoder sequence).
+5. Scale adaptive-loop model (B5) to >=1M params to test if
+   encoder-decoder coordination survives scaling, and whether
+   decoder starts using more loops.
+6. Test dynamic patching (B5 used fixed patches) vs fixed
+   patching at scale — does surprise-based variable patching
+   add value when core has capacity to use it?
