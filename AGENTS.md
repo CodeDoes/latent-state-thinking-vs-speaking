@@ -8,7 +8,9 @@ Scaffold for architectures separating **thinking** (latent state) from **speakin
 - If an experiment doesn't isolate one property, it's not an experiment.
 
 ## Status
-`theories/status.md` — live project state.
+- `theories/status.md` — project overview (frame, scaffold, threads, what's not being done).
+- `theories/proofs.md` — proof ledger, one line per proven result.
+- `theories/<topic>.status.md` — per-theory proof status (claims, open follow-ups).
 
 ## Layout
 ```
@@ -21,7 +23,7 @@ devenv.nix       # Python + torch deps (the only dependency manager)
 ## Theories
 - `<topic>.md` — your write-up (verbatim words from you).
 - `<topic>.infer.md` — my interpretation: fills in latent assumptions, highlights what `.md` leaves out. Never repeats `.md` content.
-- Read order: `ultimate.md` → `rwkv.md` → `status.md`.
+- Read order: `ultimate.md` → `rwkv.md` → `status.md` → `proofs.md`.
 
 ## Workflow
 - Models, datasets, training loops stay as separate modules in `src/`.

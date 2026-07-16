@@ -23,7 +23,7 @@ venv/
 .env/
 
 # Checkpoints & experiment outputs
-experiments/*
+# experiments/ fully tracked — small enough, doubles as proof archive.
 *.pt
 *.ckpt
 *.pth
@@ -44,6 +44,3 @@ kernel-metadata.json
 kaggle_output_cpu/
 kaggle_output_gpu/
 *.so
-
-# keep the experiments/ dir itself (ignore its contents)
-!experiments/.gitkeep
