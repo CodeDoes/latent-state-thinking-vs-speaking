@@ -122,7 +122,11 @@ class PatchModel(nn.Module):
 
 
 class SharedStateUnrolled(nn.Module):
-    """Unrolled shared-state architecture with separate encoder/decoder weights."""
+    """Unrolled shared-state architecture with shared weights (true RNN-style).
+    
+    Uses a single encoder and decoder, applied N times each.
+    This is true RNN unrolling: same weights at each time step.
+    """
     
     def __init__(
         self,
@@ -131,25 +135,19 @@ class SharedStateUnrolled(nn.Module):
         n_encoder_layers: int = 1,
         n_decoder_layers: int = 1,
         n_patch_layers: int = 1,
-        n_encoder_steps: int = 2,  # N: number of encoder instances
-        n_decoder_steps: int = 2,  # M: number of decoder instances
+        n_encoder_steps: int = 2,  # N: number of encoder applications
+        n_decoder_steps: int = 2,  # M: number of decoder applications
     ):
         super().__init__()
         self.dim = dim
         self.n_encoder_steps = n_encoder_steps
         self.n_decoder_steps = n_decoder_steps
         
-        # Separate encoder instances (each with own weights)
-        self.encoders = nn.ModuleList([
-            EncoderInstance(vocab_size, dim, n_encoder_layers)
-            for _ in range(n_encoder_steps)
-        ])
+        # Single encoder (applied N times)
+        self.encoder = EncoderInstance(vocab_size, dim, n_encoder_layers)
         
-        # Separate decoder instances (each with own weights)
-        self.decoders = nn.ModuleList([
-            DecoderInstance(vocab_size, dim, n_decoder_layers)
-            for _ in range(n_decoder_steps)
-        ])
+        # Single decoder (applied M times)
+        self.decoder = DecoderInstance(vocab_size, dim, n_decoder_layers)
         
         # Patch model
         self.patch_model = PatchModel(dim, n_patch_layers)
@@ -180,7 +178,7 @@ class SharedStateUnrolled(nn.Module):
             byte = tokens[:, i]  # [B]
             target = targets[:, i + 1]  # [B] predict next byte
             
-            encoder_state, rwkv_state, logits = self.encoders[i](byte, rwkv_state)
+            encoder_state, rwkv_state, logits = self.encoder(byte, rwkv_state)
             
             # Loss: predict next byte
             loss = F.cross_entropy(logits, target)
@@ -202,7 +200,7 @@ class SharedStateUnrolled(nn.Module):
                 # For now, just use transformed_state (could be improved)
                 input_state = transformed_state
             
-            logits, decoder_state = self.decoders[i](input_state, decoder_state)
+            logits, decoder_state = self.decoder(input_state, decoder_state)
             
             # Target: the actual next byte
             target_idx = self.n_encoder_steps + i + 1
@@ -237,8 +235,8 @@ if __name__ == "__main__":
     )
     
     print(f"Total params: {count_params(model):,}")
-    print(f"  encoders: {sum(count_params(e) for e in model.encoders):,}")
-    print(f"  decoders: {sum(count_params(d) for d in model.decoders):,}")
+    print(f"  encoder: {count_params(model.encoder):,}")
+    print(f"  decoder: {count_params(model.decoder):,}")
     print(f"  patch_model: {count_params(model.patch_model):,}")
     
     B, T = 2, 10

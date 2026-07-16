@@ -1,14 +1,17 @@
 """Training script for shared-state unrolled architecture.
 
-Separate encoder/decoder instances (each with own weights) because they
-act on different data distributions.
+Shared encoder/decoder weights (true RNN-style unrolling).
+Encoder is applied N times, decoder is applied M times.
 
 Architecture:
-  encoder_1(byte_1) → state_1
-  encoder_2(byte_2, state_1) → state_2
-  patch_model(state_2) → transformed_state
-  decoder_1(transformed_state) → byte_3, decoder_state_1
-  decoder_2(decoder_state_1) → byte_4, decoder_state_2
+  encoder(byte_1) → state_1
+  encoder(byte_2, state_1) → state_2  (same encoder, shared weights)
+  ...
+  encoder(byte_N, state_{N-1}) → state_N
+  patch_model(state_N) → transformed_state
+  decoder(transformed_state) → byte_{N+1}  (same decoder, shared weights)
+  decoder(byte_{N+1}, state_{N+1}) → byte_{N+2}  (shared weights)
+  ...
 
 Loss: encoder_loss + decoder_loss
 """
@@ -56,7 +59,7 @@ def make_batches(stream: list[int], max_len: int, batch_size: int):
 
 @torch.no_grad()
 def generate_sample(model, prompt_text: str, max_new_tokens: int = 80, max_len: int = 256):
-    """Generate text using the decoder."""
+    """Generate text using the shared encoder/decoder model."""
     model.eval()
     tokens = [BYTE_TO_ID.get(ord(c), UNK_ID) for c in prompt_text[:max_len]]
     
@@ -68,14 +71,14 @@ def generate_sample(model, prompt_text: str, max_new_tokens: int = 80, max_len: 
         x = torch.tensor([tokens], dtype=torch.long)
         
         try:
-            # Run through encoder phase
+            # Run through encoder phase (shared encoder applied multiple times)
             rwkv_state = None
             encoder_state = None
             
             for i in range(model.n_encoder_steps):
                 if i < len(tokens):
                     byte = x[:, i]
-                    encoder_state, rwkv_state, _ = model.encoders[i](byte, rwkv_state)
+                    encoder_state, rwkv_state, _ = model.encoder(byte, rwkv_state)
             
             if encoder_state is None:
                 break
@@ -83,10 +86,10 @@ def generate_sample(model, prompt_text: str, max_new_tokens: int = 80, max_len: 
             # Patch phase
             transformed_state = model.patch_model(encoder_state)
             
-            # Decoder phase (generate one byte)
+            # Decoder phase (shared decoder applied once)
             decoder_state = None
             input_state = transformed_state
-            logits, decoder_state = model.decoders[0](input_state, decoder_state)
+            logits, decoder_state = model.decoder(input_state, decoder_state)
             
             next_token = int(logits[0].argmax().item())
             tokens.append(next_token)
@@ -162,8 +165,8 @@ def main():
 
     n_params = count_params(model)
     print(f"Model params: {n_params:,}")
-    print(f"  encoders ({args.n_encoder_steps} instances): {sum(count_params(e) for e in model.encoders):,}")
-    print(f"  decoders ({args.n_decoder_steps} instances): {sum(count_params(d) for d in model.decoders):,}")
+    print(f"  encoder (shared, applied {args.n_encoder_steps}x): {count_params(model.encoder):,}")
+    print(f"  decoder (shared, applied {args.n_decoder_steps}x): {count_params(model.decoder):,}")
     print(f"  patch_model: {count_params(model.patch_model):,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
