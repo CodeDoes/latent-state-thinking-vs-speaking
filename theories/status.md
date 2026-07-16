@@ -16,16 +16,23 @@ small systems, small experiments, prove one thing at a time, no emergence.
 - `devenv.nix` — sole dependency manager.
 
 ## Active thread
+- [`theories/byte-state-byte.md`](byte-state-byte.md) — byte → encoder-state →
+  patch-model → decoder-state → byte, with two parallel architectures on disk
+  (step-function and RWKV-based). Proof status:
+  [`theories/byte-state-byte.status.md`](byte-state-byte.status.md).
+
+## Other threads (filed, not primary)
 - [`theories/progressive-expansion.md`](progressive-expansion.md) —
   proof status: [`theories/progressive-expansion.status.md`](progressive-expansion.status.md).
 
-## Open proposals (filed)
+## Open proposals
 - [`theories/generation-loss.md`](generation-loss.md) — train on
   own-generation logits, gradient only on wrong-token positions.
 - [`theories/read-twice.md`](read-twice.md) — recurrent passes instead
   of new layers for progressive expansion.
 - [`theories/byte-patch-preview.md`](byte-patch-preview.md) — BLT/RWKV
-  mapping, channel-decay-as-entropy insight.
+  mapping, channel-decay-as-entropy insight. (Now read as
+  source-research context for byte-state-byte.)
 - [`theories/decoder-ablations.md`](decoder-ablations.md) — one arm
   of a stated 4-variable ablation grid (n_dec_layers).
 

@@ -23,7 +23,7 @@ devenv.nix       # Python + torch deps (the only dependency manager)
 ## Theories
 - `<topic>.md` — your write-up (verbatim words from you).
 - `<topic>.infer.md` — my interpretation: fills in latent assumptions, highlights what `.md` leaves out. Never repeats `.md` content.
-- Read order: `ultimate.md` → `rwkv.md` → `status.md` → `proofs.md`.
+- Read order: `ultimate.md` → `rwkv.md` → `status.md` → `proofs.md`. byte→state→byte work is in `byte-state-byte.md`; progressive-expansion in `progressive-expansion.md`.
 
 ## Workflow
 - Models, datasets, training loops stay as separate modules in `src/`.
