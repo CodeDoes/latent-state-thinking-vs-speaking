@@ -1,0 +1,12 @@
+{
+  "dim": 64,
+  "n_layers": 2,
+  "min_len_before_trigger": 8,
+  "max_loops": 4,
+  "steps": 2000,
+  "batch_size": 8,
+  "max_len": 128,
+  "lr": 0.0003,
+  "final_loss": 2.0004,
+  "params": 116806
+}
