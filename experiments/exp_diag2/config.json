@@ -1,0 +1,22 @@
+{
+  "exp_id": "exp_diag2",
+  "steps": 2000,
+  "batch_size": 8,
+  "max_len": 256,
+  "lr": 0.0005,
+  "dim": 64,
+  "layers": 2,
+  "log_every": 200,
+  "eval_every": 500,
+  "save_every": 2000,
+  "resume": false,
+  "seed": 42,
+  "device": "cpu",
+  "num_vars": 1,
+  "min_transforms": 0,
+  "max_transforms": 0,
+  "noise_min": 0,
+  "noise_max": 0,
+  "git_hash": "bb44c04cce19ff46796a9ab8722361e105e7fceb",
+  "vocab_size": 74
+}

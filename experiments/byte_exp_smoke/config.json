@@ -1,0 +1,23 @@
+{
+  "exp_id": "byte_exp_smoke",
+  "steps": 500,
+  "batch_size": 4,
+  "max_len": 256,
+  "lr": 0.0005,
+  "dim": 32,
+  "layers": 1,
+  "log_every": 50,
+  "eval_every": 500,
+  "save_every": 500,
+  "resume": false,
+  "seed": 42,
+  "device": "cpu",
+  "num_vars": 3,
+  "min_transforms": 2,
+  "max_transforms": 5,
+  "noise_min": 1,
+  "noise_max": 3,
+  "git_hash": "79ba3242ef5d3bea4caa87221d8bc7ce782543dd",
+  "vocab_size": 258,
+  "vocab_kind": "byte"
+}

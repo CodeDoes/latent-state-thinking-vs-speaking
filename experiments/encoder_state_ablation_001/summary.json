@@ -1,0 +1,14 @@
+{
+  "git_hash": "6395f33deeb795a67fb1af1ef769a334db5e099e",
+  "results": {
+    "static-patch-state": 3.841906065940857,
+    "encoder-state": 3.118900375366211,
+    "static-patch-state+encoder-state": 3.1020709800720216,
+    "byte-level-state": 3.5690893220901487,
+    "static-patch-state+byte-level-state": 3.35365777015686,
+    "mutable-full-state": 3.945198402404785,
+    "static-full-state": 3.945198402404785
+  },
+  "best": "static-patch-state+encoder-state",
+  "worst": "mutable-full-state"
+}

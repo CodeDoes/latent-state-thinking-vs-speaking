@@ -1,0 +1,23 @@
+{
+  "exp_id": "rnn_patch_002",
+  "device": "cpu",
+  "steps_phase1": 1000,
+  "steps_phase2": 1000,
+  "batch_size": 8,
+  "max_len": 128,
+  "patch_size": 8,
+  "byte_state_dim": 8,
+  "patch_state_dim": 16,
+  "lr": 0.001,
+  "log_every": 50,
+  "num_vars": 2,
+  "min_transforms": 2,
+  "max_transforms": 4,
+  "noise_min": 0,
+  "noise_max": 2,
+  "seed": 42,
+  "model_params": 6568,
+  "encoder_params": 2456,
+  "decoder_params": 2712,
+  "patch_model_params": 1400
+}

@@ -1,0 +1,13 @@
+{
+  "model": "encoder_state_ablation",
+  "variant": "static-patch-state+encoder-state",
+  "git_hash": "6395f33deeb795a67fb1af1ef769a334db5e099e",
+  "n_bytes": 99713,
+  "steps": 200,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim": 32,
+  "lr": 0.0003,
+  "lr_schedule": "cosine",
+  "n_params": 31299
+}

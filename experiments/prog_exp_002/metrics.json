@@ -1,0 +1,8 @@
+{
+  "final_accuracy": 0.6953125,
+  "best_accuracy": 0.65625,
+  "total_steps": 3000,
+  "elapsed_s": 110.4,
+  "params": 117578,
+  "git_hash": "dca2b18e39a7f9245e83b7b66f009f36b94d0e57"
+}

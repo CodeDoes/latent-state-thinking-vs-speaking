@@ -1,0 +1,57 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet A = 99\n\nQuestions:\n  What is the final value of A?\n  Answer: 99",
+    "sample_prediction": "00000800000880880000040880008808800888088088888880008000080880880880808008088808880008888888080800880880808000888800880088088800008000888888008880000800800",
+    "sample_answers": [
+      "99"
+    ]
+  },
+  {
+    "step": 500,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 2.3071351051330566,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet A = 99\n\nQuestions:\n  What is the final value of A?\n  Answer: 99",
+    "sample_prediction": "52559254275222225242222225229252224299222222228222752275724222222925222752222222227553335222825222337925222759322222222522222827222522922282833228757249222",
+    "sample_answers": [
+      "99"
+    ]
+  },
+  {
+    "step": 1000,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 2.2586164474487305,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet A = 99\n\nQuestions:\n  What is the final value of A?\n  Answer: 99",
+    "sample_prediction": "52590254279222225242225225253252224239222222228222792275724222227325222752222222227953335222825200337325222750322222222522222827252525322282853228757240200",
+    "sample_answers": [
+      "99"
+    ]
+  },
+  {
+    "step": 1500,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 2.2411415576934814,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet A = 99\n\nQuestions:\n  What is the final value of A?\n  Answer: 99",
+    "sample_prediction": "54090354479329230442455230453203294239932923228234703470724329237320222703423292327053335223835300337320222700333294232032923827453045323283853338707240300",
+    "sample_answers": [
+      "99"
+    ]
+  },
+  {
+    "step": 2000,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 2.234860897064209,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet A = 99\n\nQuestions:\n  What is the final value of A?\n  Answer: 99",
+    "sample_prediction": "54090354409329230442450230403203294539932923228234703470724329237320225703423292327053334223835300337320225700333294232032923827403040323583853338707240300",
+    "sample_answers": [
+      "99"
+    ]
+  }
+]

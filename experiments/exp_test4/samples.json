@@ -1,0 +1,57 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 66\nstars could be bright near the shore.\nSubtract 16 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 50",
+    "sample_prediction": "711k117111k11111v1111Gl11v1l111111111111111111111101110101111111311111101111111111011111111111=111111111111l11G11111111111111111111011111111111111111111111l11G11G111111011111111111111111G111111111111111111v11111111101111111011111111010111111111110111111111111111111101l1v1l1111111D1110010111151",
+    "sample_answers": [
+      "50"
+    ]
+  },
+  {
+    "step": 250,
+    "accuracy": 0.03125,
+    "best_acc": 0.03125,
+    "loss": 2.3967113494873047,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 53\nstars could be bright near the shore.\nSubtract 6 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 47",
+    "sample_prediction": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "47"
+    ]
+  },
+  {
+    "step": 500,
+    "accuracy": 0.0,
+    "best_acc": 0.03125,
+    "loss": 2.3632071018218994,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 61\nstars could be bright near the shore.\nSubtract 15 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 46",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "46"
+    ]
+  },
+  {
+    "step": 750,
+    "accuracy": 0.0625,
+    "best_acc": 0.0625,
+    "loss": 2.4378345012664795,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 57\nstars could be bright near the shore.\nSubtract 13 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 44",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111021111111111111111111111111111111111111111111112211111111111111111111111111111111111111111111111100111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100",
+    "sample_answers": [
+      "44"
+    ]
+  },
+  {
+    "step": 1000,
+    "accuracy": 0.03125,
+    "best_acc": 0.0625,
+    "loss": 2.402005195617676,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 88\nstars could be bright near the shore.\nSubtract 15 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 73",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111001111111111111111111111111111111111111111111110011111111111111111111111111111111111111111111111100111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100",
+    "sample_answers": [
+      "73"
+    ]
+  }
+]

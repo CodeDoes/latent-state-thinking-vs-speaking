@@ -1,0 +1,62 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.640625,
+    "best_acc": 0.640625,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\ntrees remain big.\ncats is wet through the valley.\n\nLet D = 99\nfire are cold on a clear day.\nthe wind can be slow across the field.\nSet D to 2\ncats could be wet under the surface.\nfish could be round.\nSet D to 72\nA",
+    "sample_prediction": "111111111111111111111111111111111111111111111111112111211111111111111112111111111121111111111111112111111111111111111111111111111111111111111111111111111111111111112111111111111111111112111121111111111111111111111111111111111111111111111111111111112111111111111111111111111111111111121111111111111111",
+    "sample_answers": [
+      "92",
+      "15"
+    ]
+  },
+  {
+    "step": 500,
+    "accuracy": 0.640625,
+    "best_acc": 0.640625,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\ntrees remain big.\ncats is wet through the valley.\n\nLet D = 99\nfire are cold on a clear day.\nthe wind can be slow across the field.\nSet D to 16\ncats could be wet under the surface.\nfish could be round.\nSet D to 97\n",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "98",
+      "11"
+    ]
+  },
+  {
+    "step": 1000,
+    "accuracy": 0.640625,
+    "best_acc": 0.640625,
+    "loss": 2.1447649002075195,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\ntrees remain big.\ncats is wet through the valley.\n\nLet D = 99\nfire are cold on a clear day.\nthe wind can be slow across the field.\nSet D to 19\ncats could be wet under the surface.\nfish could be round.\nSet D to 28\n",
+    "sample_prediction": "111111111111111111111111111111111111111111111111112111211111111111111112111111111121111111111111112111111111111111111111111111111111112111211111112211111111111111112111111111112111111112111121111111111111111111111111111111111112211111111111111111111211111111111111111111111111111111112111111111111111",
+    "sample_answers": [
+      "42",
+      "1"
+    ]
+  },
+  {
+    "step": 1500,
+    "accuracy": 0.671875,
+    "best_acc": 0.671875,
+    "loss": 2.2001540660858154,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\ntrees remain big.\ncats is wet through the valley.\n\nLet D = 99\nfire are cold on a clear day.\nthe wind can be slow across the field.\nSet D to 73\ncats could be wet under the surface.\nfish could be round.\nSet D to 73\n",
+    "sample_prediction": "011111011111001111111111111111110011110100110110110111010111001111110110111010011101111011111110110111111110111110101001111010011111112111210101110011111111111111110111111111112110011010111101111111011111111001111111111101010110011101111111111101011011110011111111111111011111111111110111110101011001",
+    "sample_answers": [
+      "84",
+      "4"
+    ]
+  },
+  {
+    "step": 2000,
+    "accuracy": 0.65625,
+    "best_acc": 0.671875,
+    "loss": 2.1588926315307617,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\ntrees remain big.\ncats is wet through the valley.\n\nLet D = 99\nfire are cold on a clear day.\nthe wind can be slow across the field.\nSet D to 78\ncats could be wet under the surface.\nfish could be round.\nSet D to 62\n",
+    "sample_prediction": "011111011111111111111111111111111111111111111111110111010111111111111110111111111101111111111110110111111111111110111111111111111111111111111101110011111111111111110111111111111111111010111101111111011111111111111111111111011110011111111111111101111011111111111111111111111111111111110111111101111001",
+    "sample_answers": [
+      "82",
+      "3"
+    ]
+  }
+]

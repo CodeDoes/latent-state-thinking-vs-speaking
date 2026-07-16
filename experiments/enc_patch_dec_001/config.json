@@ -1,0 +1,15 @@
+{
+  "model": "encoder_patcher_decoder",
+  "git_hash": "276b72cd5535e1ffb2734f7336e296b6c08c2401",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 500,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim": 64,
+  "patch_size": 4,
+  "max_loops": 4,
+  "lr": 0.0003,
+  "lr_schedule": "cosine",
+  "n_params": 95172
+}

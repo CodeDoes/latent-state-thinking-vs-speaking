@@ -1,0 +1,16 @@
+{
+  "experiment": "decoder_layers_ablation",
+  "date": "2026-07-15",
+  "matched": "seed=42, dim=96, n_enc_layers=2, n_patch_layers=1, patch_size=4, data=9KB TinyStories slice, lr=3e-4, 3 epochs",
+  "arms": {
+    "n_dec_layers=2": {
+      "params": 673218,
+      "final_loss_ep3_mean": 1.2032
+    },
+    "n_dec_layers=0": {
+      "params": 431490,
+      "final_loss_ep3_mean": 1.4021
+    }
+  },
+  "observation": "decoder_rwkv_blocks_help_by_~14pct"
+}

@@ -1,0 +1,17 @@
+{
+  "model": "blt_trans_enc_rwkv_patch",
+  "git_hash": "be9de16912c11ea8ec1ff0f5724cee997056c7d0",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 300,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim_byte": 64,
+  "dim_patch": 32,
+  "n_layers_inner": 2,
+  "n_layers_outer": 1,
+  "n_heads": 4,
+  "patch_size": 4,
+  "lr": 0.0003,
+  "n_params": 151394
+}

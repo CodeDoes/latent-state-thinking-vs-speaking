@@ -1,0 +1,19 @@
+{
+  "model": "shared_state_unrolled",
+  "git_hash": "5388b1e39694b1d9f7df45138824342c4635509f",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 1000,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim": 64,
+  "n_encoder_layers": 1,
+  "n_decoder_layers": 1,
+  "n_patch_layers": 1,
+  "n_encoder_steps": 2,
+  "n_decoder_steps": 2,
+  "lr": 0.0003,
+  "lr_schedule": "cosine",
+  "n_params": 374664,
+  "architecture": "unrolled: 2 encoder steps \u2192 patch \u2192 2 decoder steps (separate weights)"
+}

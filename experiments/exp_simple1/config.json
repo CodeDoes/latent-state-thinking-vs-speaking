@@ -1,0 +1,22 @@
+{
+  "exp_id": "exp_simple1",
+  "steps": 5000,
+  "batch_size": 16,
+  "max_len": 256,
+  "lr": 0.0001,
+  "dim": 64,
+  "layers": 2,
+  "log_every": 500,
+  "eval_every": 1000,
+  "save_every": 5000,
+  "resume": false,
+  "seed": 42,
+  "device": "cpu",
+  "num_vars": 1,
+  "min_transforms": 0,
+  "max_transforms": 0,
+  "noise_min": 0,
+  "noise_max": 0,
+  "git_hash": "bb44c04cce19ff46796a9ab8722361e105e7fceb",
+  "vocab_size": 74
+}

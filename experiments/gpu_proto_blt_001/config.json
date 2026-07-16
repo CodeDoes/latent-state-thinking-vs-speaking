@@ -1,0 +1,16 @@
+{
+  "text": "experiments/byte_ts_001/text.txt",
+  "exp_id": "gpu_proto_blt_001",
+  "steps": 2000,
+  "batch_size": 16,
+  "max_len": 256,
+  "dim": 128,
+  "n_enc_layers": 2,
+  "n_patch_layers": 1,
+  "n_dec_layers": 2,
+  "patch_size": 4,
+  "lr": 0.0003,
+  "log_every": 100,
+  "device": "cuda",
+  "git_hash": "317f4a5eb02e8f4b6217f4ab1a0b250545a28200"
+}

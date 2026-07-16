@@ -1,0 +1,8 @@
+{
+  "final_step": 2000,
+  "final_loss": 0.1260385513305664,
+  "elapsed_s": 145.1,
+  "speed_st_per_s": 13.784974431966495,
+  "params": 1171970,
+  "git_hash": "317f4a5eb02e8f4b6217f4ab1a0b250545a28200"
+}

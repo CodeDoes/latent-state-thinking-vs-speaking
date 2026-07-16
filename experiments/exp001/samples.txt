@@ -1,0 +1,16 @@
+[WHERE] Q: WHERE N4
+   expected=L9  latent=L1  baseline=YES
+[SAME] Q: SAME N6
+   expected=YES  latent=YES  baseline=YES
+[SAME] Q: SAME N4
+   expected=NO  latent=NO  baseline=YES
+[AT] Q: AT N1 L0
+   expected=NO  latent=NO  baseline=NO
+[AT] Q: AT N4 L1
+   expected=NO  latent=NO  baseline=NO
+[SAME] Q: SAME N1
+   expected=NO  latent=NO  baseline=YES
+[WHERE] Q: WHERE N9
+   expected=L1  latent=L1  baseline=YES
+[AT] Q: AT N1 L6
+   expected=NO  latent=NO  baseline=NO

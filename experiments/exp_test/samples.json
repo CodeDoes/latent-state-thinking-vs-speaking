@@ -1,0 +1,38 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0625,
+    "best_acc": 0.0625,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 8 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 3\nMultiply Y by 2\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "1111111111111111111111l1111l1111111g1g11111111111111111111111111111111g11111111111111111111111111111111111g111111lg111111g1111111111l1111111111g11111l111l1111111111111111111111g11111111111111g111111g111111111111111111111111111l111l11111111111111111111111111111111g1111111111l1111111111g11111111111111",
+    "sample_answers": [
+      "170",
+      "16"
+    ]
+  },
+  {
+    "step": 50,
+    "accuracy": 0.015625,
+    "best_acc": 0.0625,
+    "loss": 4.19101095199585,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 20 to D\nMultiply D by 3\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 4\nMultiply Y by 2\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "138",
+      "12"
+    ]
+  },
+  {
+    "step": 100,
+    "accuracy": 0.046875,
+    "best_acc": 0.0625,
+    "loss": 3.6263973712921143,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 15 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 4\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "205",
+      "18"
+    ]
+  }
+]

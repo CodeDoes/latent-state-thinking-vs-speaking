@@ -1,0 +1,17 @@
+{
+  "model": "shared_state",
+  "git_hash": "5191ff4cca369c868a77fc100b2c3a5c6388588d",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 1000,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim": 64,
+  "n_byte_layers": 2,
+  "n_patch_layers": 1,
+  "n_decoder_layers": 2,
+  "surprise_threshold": 3.0,
+  "lr": 0.0003,
+  "lr_schedule": "cosine",
+  "n_params": 340933
+}

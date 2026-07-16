@@ -1,0 +1,9 @@
+{
+  "best_accuracy": 0.0,
+  "total_steps": 500,
+  "elapsed_s": 5.0,
+  "params": 30498,
+  "git_hash": "79ba3242ef5d3bea4caa87221d8bc7ce782543dd",
+  "vocab_size": 258,
+  "vocab_kind": "byte"
+}

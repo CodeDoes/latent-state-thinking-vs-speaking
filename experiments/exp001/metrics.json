@@ -1,0 +1,83 @@
+{
+  "hypothesis": "think-once (latent) vs re-encode-per-query (baseline), equal params",
+  "vocab": 27,
+  "latent_params": 7691,
+  "baseline_params": 7563,
+  "baseline_d_hidden": 37,
+  "n_worlds": 2000,
+  "n_queries": 12038,
+  "epochs": 15,
+  "elapsed_s": 30.8,
+  "latent_overall_acc": 0.5691975355148315,
+  "baseline_overall_acc": 0.42731350660324097,
+  "latent_by_type": {
+    "WHERE": 0.33586177229881287,
+    "AT": 0.8982349634170532,
+    "SAME": 0.5458264946937561
+  },
+  "baseline_by_type": {
+    "WHERE": 0.007374631240963936,
+    "AT": 0.8943739533424377,
+    "SAME": 0.509001612663269
+  },
+  "compute_ratio_base_over_latent": 4.21,
+  "winner": "latent",
+  "samples": [
+    {
+      "qtype": "WHERE",
+      "question": "WHERE N4",
+      "expected": "L9",
+      "latent": "L1",
+      "baseline": "YES"
+    },
+    {
+      "qtype": "SAME",
+      "question": "SAME N6",
+      "expected": "YES",
+      "latent": "YES",
+      "baseline": "YES"
+    },
+    {
+      "qtype": "SAME",
+      "question": "SAME N4",
+      "expected": "NO",
+      "latent": "NO",
+      "baseline": "YES"
+    },
+    {
+      "qtype": "AT",
+      "question": "AT N1 L0",
+      "expected": "NO",
+      "latent": "NO",
+      "baseline": "NO"
+    },
+    {
+      "qtype": "AT",
+      "question": "AT N4 L1",
+      "expected": "NO",
+      "latent": "NO",
+      "baseline": "NO"
+    },
+    {
+      "qtype": "SAME",
+      "question": "SAME N1",
+      "expected": "NO",
+      "latent": "NO",
+      "baseline": "YES"
+    },
+    {
+      "qtype": "WHERE",
+      "question": "WHERE N9",
+      "expected": "L1",
+      "latent": "L1",
+      "baseline": "YES"
+    },
+    {
+      "qtype": "AT",
+      "question": "AT N1 L6",
+      "expected": "NO",
+      "latent": "NO",
+      "baseline": "NO"
+    }
+  ]
+}

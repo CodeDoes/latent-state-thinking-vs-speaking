@@ -1,0 +1,17 @@
+{
+  "text": "experiments/byte_ts_001/text.txt",
+  "exp_id": "blt_rwkv_001",
+  "steps": 300,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim_byte": 64,
+  "dim_patch": 32,
+  "n_layers_inner": 2,
+  "n_layers_outer": 1,
+  "patch_size": 4,
+  "lr": 0.0003,
+  "log_every": 50,
+  "sample_every": 60,
+  "device": "cpu",
+  "git_hash": "08c643cf2f2d3adfd78e29590627979601a6fd7c"
+}

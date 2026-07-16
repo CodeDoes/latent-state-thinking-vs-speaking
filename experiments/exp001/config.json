@@ -1,0 +1,12 @@
+{
+  "n": 2000,
+  "epochs": 15,
+  "d_emb": 16,
+  "d_hidden_enc": 32,
+  "d_hidden_speak": 32,
+  "batch": 256,
+  "seed": 42,
+  "device": "cpu",
+  "exp_id": "exp001",
+  "max_events": 8
+}

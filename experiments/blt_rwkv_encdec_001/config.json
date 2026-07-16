@@ -1,0 +1,17 @@
+{
+  "model": "blt_rwkv_enc_dec",
+  "git_hash": "bbdf1ad6978d12961c420c904db7c12dbab4e4f2",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 300,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim_byte": 64,
+  "dim_patch": 32,
+  "n_layers_inner": 2,
+  "n_layers_outer": 1,
+  "n_heads": 4,
+  "patch_size": 4,
+  "lr": 0.0003,
+  "n_params": 158370
+}

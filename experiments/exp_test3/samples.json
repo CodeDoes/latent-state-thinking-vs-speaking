@@ -1,0 +1,74 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.046875,
+    "best_acc": 0.046875,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 7 to D\nMultiply D by 3\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "f5f5f1ff5f511m51g5f555f51g5f55f11mfg5fm11m511511151f151ff5f11m51555f15g1f15111m5151f1mmm151191f19fmg5fm155fm11551fg5f15ffgff11m51g55ff1m1ff1511g19mf5f155f11915111mm151111f19fm5g511551f15f51fmgf1155ggf51f51f511m95g5f51115111mf5f155f11115111m1m5155f1m1f5551m5ff15ffgff11m51g55ff1mmm55f15g1ffm11fm5115f1",
+    "sample_answers": [
+      "99",
+      "12"
+    ]
+  },
+  {
+    "step": 200,
+    "accuracy": 0.015625,
+    "best_acc": 0.046875,
+    "loss": 2.508578062057495,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 13 to D\nMultiply D by 4\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 4\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "156",
+      "48"
+    ]
+  },
+  {
+    "step": 400,
+    "accuracy": 0.03125,
+    "best_acc": 0.046875,
+    "loss": 2.345248222351074,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 1 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 5\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "135",
+      "60"
+    ]
+  },
+  {
+    "step": 600,
+    "accuracy": 0.03125,
+    "best_acc": 0.046875,
+    "loss": 2.3457605838775635,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 10 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 3\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111021111111111111111111111111111111111111111110111111111111111111111211111111110011111111111111111111111111111111111111111111111101111111111111110111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "180",
+      "24"
+    ]
+  },
+  {
+    "step": 800,
+    "accuracy": 0.03125,
+    "best_acc": 0.046875,
+    "loss": 2.3097951412200928,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 2 to D\nMultiply D by 4\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 4\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111001111111111111111111111111111111111111111110111111111111111111110111111111100111111111111111111111111111111111111111111111111011111111111111101111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "112",
+      "16"
+    ]
+  },
+  {
+    "step": 1000,
+    "accuracy": 0.015625,
+    "best_acc": 0.046875,
+    "loss": 2.339414596557617,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 11 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111001111111111111111111111111111111111111111110011111111111111111111011111111110011111111111111111111111111111111111111111111111101111111111111110111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "185",
+      "36"
+    ]
+  }
+]

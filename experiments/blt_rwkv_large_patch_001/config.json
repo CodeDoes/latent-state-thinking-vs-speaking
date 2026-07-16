@@ -1,0 +1,26 @@
+{
+  "model": "blt_rwkv_large_patch",
+  "git_hash": "d10daf87197bae1629e72726dbcbbcb51c064bd0",
+  "text_path": "experiments/byte_ts_001/text.txt",
+  "n_bytes": 99813,
+  "steps": 1000,
+  "batch_size": 8,
+  "max_len": 128,
+  "dim_byte": 64,
+  "dim_patch": 192,
+  "n_layers_inner": 2,
+  "n_layers_outer": 2,
+  "n_heads": 8,
+  "patch_size": 4,
+  "lr": 0.0003,
+  "lr_schedule": "cosine",
+  "n_params": 1056194,
+  "changes": [
+    "RWKV time_decay init: 0 \u2192 -0.5",
+    "Patch dim: 32 \u2192 192 (3x)",
+    "Patch layers: 1 \u2192 2",
+    "Patch heads: 4 \u2192 8",
+    "Steps: 300 \u2192 1000",
+    "LR schedule: cosine with warmup"
+  ]
+}
