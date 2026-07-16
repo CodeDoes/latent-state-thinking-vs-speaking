@@ -47,6 +47,9 @@ experiment proofs in [`theories/proofs.md`](proofs.md).
 - **B6** — *byte-level adaptive encoder↔decoder loop works.* At 117K params (encoder 2L, decoder 2L, min_len=8 trigger bias), loss drops from 5.78 to 2.00 in 2k steps. Encoder learns to always pass to decoder (trigger→0.99), decoder does the work (trigger~0.23). No decoder stall. Proves decoder can work at byte level with adaptive compute.
   Status: **proven** by `byte_loop_001` (`a00fa4b`).
 
+- **B7** — *patch-level encoder + sparse decoder with trigger cost works.* At 133K params (patch_size=8, enc 2L, dec 2L, trigger_cost=0.1), loss drops from 5.76 to ~2.40. Encoder triggers on ~50% of patches (8/16), decoder learns at triggered patches. Proves compression pressure (trigger cost) forces encoder to select which patches need decoder compute.
+  Status: **proven** by `patch_loop_001` (HEAD).
+
 ## Mechanism gap (what we know we don't know)
 - Why decoder stalls when encoder doesn't (B3).
 - Whether the step-function phase-2 negative (B2) is a property
