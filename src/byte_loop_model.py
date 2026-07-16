@@ -127,6 +127,7 @@ class AdaptiveByteDecoder(nn.Module):
         self.dim = dim
 
         self.trigger_embed = nn.Linear(1, dim)  # scalar trigger → dim
+        self.byte_proj = nn.Linear(258, dim)    # encoder byte logits → dim
         self.layers = nn.ModuleList([ByteRNN(dim) for _ in range(n_layers)])
         self.ln = nn.LayerNorm(dim)
         self.head = TriggerHead(dim)
@@ -142,8 +143,8 @@ class AdaptiveByteDecoder(nn.Module):
         """
         B, T = encoder_trigger.shape
 
-        # Project encoder byte logits to dim (detach to avoid double-backprop through encoder head)
-        byte_proj = nn.functional.linear(encoder_byte_logits.detach(), self.layers[0].W_in.weight[:258].T)
+        # Project encoder byte logits to dim
+        byte_proj = self.byte_proj(encoder_byte_logits.detach())
 
         # Trigger embedding
         trigger_emb = self.trigger_embed(encoder_trigger.unsqueeze(-1))
