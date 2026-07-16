@@ -12,7 +12,7 @@ Latest first. Older entries below; nothing is deleted, only superseded.
 ## Proven
 - `shared_state_unrolled_feedback_001`: recurrent decoder feedback (feeding previous target embedding to decoder step i > 0) resolves the B3/B4 decoder stall and mode-collapse. Decoder loss drops rapidly to 0.035 in 500 steps, generating non-blank text.
 - `rwkv_state_passing_001`: correct initial state (num/den) decay and shape-stable state saving in RWKVBlock ensures perfect recurrence memory across sequence segments and steps, resulting in successful step-by-step decoding.
-- `byte_loop_001` (`a00fa4b`): byte-level adaptive encoder↔decoder loop (next-byte | TRIGGER per step, min_len=8 trigger bias) trains at 117K params. Encoder trigger ~0.53, decoder trigger ~0.42. No decoder stall. Proves B6.
+- `byte_loop_001` (`a00fa4b`): byte-level adaptive encoder↔decoder at 117K params trains to loss 2.00 (from 5.78). Encoder always triggers (0.99), decoder does work (trigger 0.23). No decoder stall. Proves B6.
 - `adaptive_loop_001` (`86e3c01`): adaptive-loop encoder→RWKV-core→decoder trains cleanly at 228K params (loss 5.74→0.47 in 2k steps). Encoder loops adapt from 1→3; decoder uses 1 loop. First byte-state-byte variant without decoder stall. See claim B5.
 - `exp001` (`bb44c04`): recurrent latent state > per-query re-encode at matched params (~7.6k, WHOLE accuracy 0.336 vs 0.007).
 - `encoder_state_ablation_001` (`c64f9cf`): encoder-state components load-bearing; static (not mutable) state, with patch+encoder composition, beats 6 other variants at matched ~6.5k params. Ranked full table in [`byte-state-byte.status.md`](byte-state-byte.status.md). See claim B1.

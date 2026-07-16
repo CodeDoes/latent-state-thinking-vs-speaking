@@ -44,7 +44,7 @@ experiment proofs in [`theories/proofs.md`](proofs.md).
 - **B5** — *adaptive-loop encoder→RWKV-core→decoder avoids decoder stall.* At 228K params (encoder 2L+adaptive loops, RWKV-7 core 2L+2 depth loops, decoder 2L+adaptive loops), loss drops from 5.74 to 0.47 in 2k steps. Encoder loops adapt 1→3; decoder uses 1 loop. No mode collapse. First byte-state-byte variant without B3/B4 failure modes.
   Status: **proven** by `adaptive_loop_001` (`86e3c01`).
 
-- **B6** — *byte-level adaptive encoder↔decoder loop works.* At 117K params (encoder 2L, decoder 2L, min_len=8 trigger bias), both halves train with no stall. Encoder trigger rate ~0.53, decoder ~0.42. Decoder participates (not stalled). Proves decoder can work at byte level with adaptive compute.
+- **B6** — *byte-level adaptive encoder↔decoder loop works.* At 117K params (encoder 2L, decoder 2L, min_len=8 trigger bias), loss drops from 5.78 to 2.00 in 2k steps. Encoder learns to always pass to decoder (trigger→0.99), decoder does the work (trigger~0.23). No decoder stall. Proves decoder can work at byte level with adaptive compute.
   Status: **proven** by `byte_loop_001` (`a00fa4b`).
 
 ## Mechanism gap (what we know we don't know)
