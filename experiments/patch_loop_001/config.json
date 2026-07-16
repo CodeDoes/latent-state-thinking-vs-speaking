@@ -1,0 +1,14 @@
+{
+  "dim": 64,
+  "patch_size": 8,
+  "enc_layers": 2,
+  "dec_layers": 2,
+  "min_patches": 1,
+  "trigger_cost": 0.1,
+  "steps": 2000,
+  "batch_size": 8,
+  "max_len": 128,
+  "lr": 0.0003,
+  "final_loss": 2.4048,
+  "params": 133125
+}
