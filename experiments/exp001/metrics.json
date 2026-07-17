@@ -7,18 +7,18 @@
   "n_worlds": 2000,
   "n_queries": 12038,
   "epochs": 15,
-  "elapsed_s": 30.8,
-  "latent_overall_acc": 0.5691975355148315,
-  "baseline_overall_acc": 0.42731350660324097,
+  "elapsed_s": 40.5,
+  "latent_overall_acc": 0.5714404582977295,
+  "baseline_overall_acc": 0.44475826621055603,
   "latent_by_type": {
-    "WHERE": 0.33586177229881287,
+    "WHERE": 0.33860093355178833,
     "AT": 0.8982349634170532,
-    "SAME": 0.5458264946937561
+    "SAME": 0.5496453642845154
   },
   "baseline_by_type": {
-    "WHERE": 0.007374631240963936,
-    "AT": 0.8943739533424377,
-    "SAME": 0.509001612663269
+    "WHERE": 0.03371259942650795,
+    "AT": 0.8946497440338135,
+    "SAME": 0.5319148898124695
   },
   "compute_ratio_base_over_latent": 4.21,
   "winner": "latent",
@@ -41,7 +41,7 @@
       "qtype": "SAME",
       "question": "SAME N4",
       "expected": "NO",
-      "latent": "NO",
+      "latent": "YES",
       "baseline": "YES"
     },
     {
@@ -62,7 +62,7 @@
       "qtype": "SAME",
       "question": "SAME N1",
       "expected": "NO",
-      "latent": "NO",
+      "latent": "YES",
       "baseline": "YES"
     },
     {

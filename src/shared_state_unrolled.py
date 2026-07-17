@@ -192,18 +192,21 @@ class SharedStateUnrolled(nn.Module):
         decoder_losses = []
         
         for i in range(self.n_decoder_steps):
-            # Input is transformed_state for first step, then decoder's own output
+            # Input is transformed_state for first step, then embedding of the previous target token (teacher forcing)
             if i == 0:
                 input_state = transformed_state
             else:
-                # Use decoder's internal state (h from last RWKV block)
-                # For now, just use transformed_state (could be improved)
-                input_state = transformed_state
+                prev_target_idx = self.n_encoder_steps + i - 1
+                if prev_target_idx < T:
+                    prev_target = targets[:, prev_target_idx]
+                    input_state = self.encoder.embed(prev_target)
+                else:
+                    input_state = transformed_state
             
             logits, decoder_state = self.decoder(input_state, decoder_state)
             
-            # Target: the actual next byte
-            target_idx = self.n_encoder_steps + i + 1
+            # Target: the actual next byte (prevents target leakage)
+            target_idx = self.n_encoder_steps + i
             if target_idx < T:
                 target = targets[:, target_idx]
                 loss = F.cross_entropy(logits, target)
