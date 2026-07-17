@@ -32,13 +32,14 @@ experiment proofs in [`theories/proofs.md`](proofs.md).
   reaches 0.035 in 1k steps but decoder loss sticks at 0.156.
   Samples come out blank.
   Status: **proven** by `shared_state_unrolled_010` (`4038849`).
-  The encoder/decoder asymmetry is the open question.
+  **Resolved/corrected** by `shared_state_unrolled_feedback_001` which implements recurrent decoder feedback (feeding previous target embedding to decoder step i > 0), dropping decoder loss to 0.035 and generating non-blank text.
 
 - **B4** — *shared encoder-decoder weights collapse.* Same
   arch as B3 with weight sharing. Loss plateau at 2.49 with
   sample mode-collapsed to `eee...`.
   Status: **proven negatively** by
   `shared_state_unrolled_shared_010` (`cc5ccea`).
+  **Resolved/corrected** by `shared_state_unrolled_feedback_001` which restores proper sequence dependency.
 
 - **B5** — *adaptive-loop encoder→RWKV-core→decoder avoids decoder stall.* At 228K params (encoder 2L+adaptive loops, RWKV-7 core 2L+2 depth loops, decoder 2L+adaptive loops), loss drops from 5.74 to 0.47 in 2k steps. Encoder loops adapt 1→3; decoder uses 1 loop. No mode collapse. First byte-state-byte variant without B3/B4 failure modes.
   Status: **proven** by `adaptive_loop_001` (`86e3c01`).

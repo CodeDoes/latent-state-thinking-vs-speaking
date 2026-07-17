@@ -1,0 +1,14 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 4.304064750671387,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nflowers might be tall during the night.\n\nLet E = 28\nSubtract 1 from E\nmountains could be wet near the shore.\nSet E to 5\nthe moon appear round across the field.\n\nLet Z = 84\nSubtract 7 from Z\nSet Z to 86\n\nQuestions:",
+    "sample_prediction": "460242426422223236236023236233022223302222322322262226202322223223302332026222232322244223232022302220322622223232022232230222442322624246423022642262223226423322632024332220322322236222232023232423226223224223223322622362223322264230022232233222442322324263423022642202223223423223223260443330233204",
+    "sample_answers": [
+      "5",
+      "86"
+    ]
+  }
+]

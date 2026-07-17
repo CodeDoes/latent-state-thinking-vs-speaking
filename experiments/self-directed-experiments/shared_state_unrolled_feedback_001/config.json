@@ -3,7 +3,7 @@
   "git_hash": "c606ed2a0caf19615e7f00af945794461c15b473",
   "text_path": "experiments/byte_ts_001/text.txt",
   "n_bytes": 99813,
-  "steps": 5,
+  "steps": 500,
   "batch_size": 8,
   "max_len": 128,
   "dim": 64,

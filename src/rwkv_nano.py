@@ -83,10 +83,15 @@ class RWKVBlock(nn.Module):
 
         # ── Time mixing ──
         x_norm = self.ln1(x)
-        # Mix with previous timestep
-        xk = x_norm * self.time_mix_k + xx.unsqueeze(1) * (1 - self.time_mix_k)
-        xv = x_norm * self.time_mix_v + xx.unsqueeze(1) * (1 - self.time_mix_v)
-        xr = x_norm * self.time_mix_r + xx.unsqueeze(1) * (1 - self.time_mix_r)
+        # Shift the sequence to mix with the true immediate predecessor (using scale-matched x_norm state 'xx')
+        if T > 1:
+            x_prev = torch.cat([xx.unsqueeze(1), x_norm[:, :-1, :]], dim=1)
+        else:
+            x_prev = xx.unsqueeze(1)
+
+        xk = x_norm * self.time_mix_k + x_prev * (1 - self.time_mix_k)
+        xv = x_norm * self.time_mix_v + x_prev * (1 - self.time_mix_v)
+        xr = x_norm * self.time_mix_r + x_prev * (1 - self.time_mix_r)
 
         k = self.key(xk)
         v = self.value(xv)
@@ -120,8 +125,21 @@ class RWKVBlock(nn.Module):
         cum_num = _cumlogsumexp(log_term_num)         # (B, T, C)
         cum_den = _cumlogsumexp(log_term_den)
         # num_t = exp(cum_num + t*log_w) * sign
-        num = torch.exp(cum_num + t_idx * log_w) * sign_num
-        den = torch.exp(cum_den + t_idx * log_w)
+        S_num = torch.exp(cum_num + t_idx * log_w) * sign_num
+        S_den = torch.exp(cum_den + t_idx * log_w)
+
+        # Incorporate historical state ('num' and 'den' sums) from prior segments/steps
+        if state is not None and 'num' in state and 'den' in state:
+            num_prev = state['num']
+            den_prev = state['den']
+        else:
+            num_prev = torch.zeros(B, C, device=x.device, dtype=x.dtype)
+            den_prev = torch.zeros(B, C, device=x.device, dtype=x.dtype)
+
+        # Exp-decay factor: w_^{t+1}
+        decay_factor = torch.exp((t_idx + 1) * log_w)  # (1, T, 1) or (B, T, C) depending on broadcasting
+        num = decay_factor * num_prev.unsqueeze(1) + S_num
+        den = decay_factor * den_prev.unsqueeze(1) + S_den
 
         wkv_out = (num + e_u_k * v) / (den + e_u_k + 1e-8)  # (B, T, C)
 
@@ -130,15 +148,21 @@ class RWKVBlock(nn.Module):
         x = x + tm_out
 
         # ── Channel mixing ──
-        x_norm = self.ln2(x)
+        x_norm2 = self.ln2(x)
         # Mix with previous timestep
         if state is not None and 'xx2' in state:
             xx2 = state['xx2']
         else:
             xx2 = torch.zeros(B, C, device=x.device, dtype=x.dtype)
 
-        xk = x_norm * self.channel_mix_k + xx2.unsqueeze(1) * (1 - self.channel_mix_k)
-        xr = x_norm * self.channel_mix_r + xx2.unsqueeze(1) * (1 - self.channel_mix_r)
+        # Shift the sequence for channel mixing
+        if T > 1:
+            x_prev2 = torch.cat([xx2.unsqueeze(1), x_norm2[:, :-1, :]], dim=1)
+        else:
+            x_prev2 = xx2.unsqueeze(1)
+
+        xk = x_norm2 * self.channel_mix_k + x_prev2 * (1 - self.channel_mix_k)
+        xr = x_norm2 * self.channel_mix_r + x_prev2 * (1 - self.channel_mix_r)
 
         k_c = torch.relu(self.fc_key(xk)) ** 2
         r_c = torch.sigmoid(self.fc_receptance(xr))
@@ -148,10 +172,10 @@ class RWKVBlock(nn.Module):
 
         # ── Update state ──
         new_state = {
-            'xx': x[:, -1, :].detach().clone(),    # last timestep's input
-            'xx2': x_norm[:, -1, :].detach().clone(),  # for channel mixing
-            'num': num.detach().clone(),
-            'den': den.detach().clone(),
+            'xx': x_norm[:, -1, :].detach().clone(),    # last timestep's ln1(x) (scale-matched)
+            'xx2': x_norm2[:, -1, :].detach().clone(),  # last timestep's ln2(x) (scale-matched)
+            'num': num[:, -1, :].detach().clone(),      # last timestep's num sum
+            'den': den[:, -1, :].detach().clone(),      # last timestep's den sum
         }
 
         return x, new_state

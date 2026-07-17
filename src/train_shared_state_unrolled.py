@@ -61,44 +61,44 @@ def make_batches(stream: list[int], max_len: int, batch_size: int):
 def generate_sample(model, prompt_text: str, max_new_tokens: int = 80, max_len: int = 256):
     """Generate text using the shared encoder/decoder model."""
     model.eval()
+    device = next(model.parameters()).device
     tokens = [BYTE_TO_ID.get(ord(c), UNK_ID) for c in prompt_text[:max_len]]
     
+    # Run through encoder phase (shared encoder applied multiple times up to n_encoder_steps)
+    rwkv_state = None
+    encoder_state = None
+
+    # We will use at most n_encoder_steps tokens from the prompt
+    encoder_tokens = tokens[:model.n_encoder_steps]
+    if len(encoder_tokens) < model.n_encoder_steps:
+        encoder_tokens = encoder_tokens + [PAD_ID] * (model.n_encoder_steps - len(encoder_tokens))
+        
+    for i in range(model.n_encoder_steps):
+        byte = torch.tensor([encoder_tokens[i]], dtype=torch.long, device=device)
+        encoder_state, rwkv_state, _ = model.encoder(byte, rwkv_state)
+        
+    if encoder_state is None:
+        return ""
+
+    # Patch phase
+    transformed_state = model.patch_model(encoder_state)
+
+    # Decoder phase: sequentially generate new tokens
+    decoder_state = None
     generated = []
-    for _ in range(max_new_tokens):
-        if len(tokens) > max_len:
-            tokens = tokens[-max_len:]
-        
-        x = torch.tensor([tokens], dtype=torch.long)
-        
-        try:
-            # Run through encoder phase (shared encoder applied multiple times)
-            rwkv_state = None
-            encoder_state = None
-            
-            for i in range(model.n_encoder_steps):
-                if i < len(tokens):
-                    byte = x[:, i]
-                    encoder_state, rwkv_state, _ = model.encoder(byte, rwkv_state)
-            
-            if encoder_state is None:
-                break
-            
-            # Patch phase
-            transformed_state = model.patch_model(encoder_state)
-            
-            # Decoder phase (shared decoder applied once)
-            decoder_state = None
+
+    for i in range(max_new_tokens):
+        if i == 0:
             input_state = transformed_state
-            logits, decoder_state = model.decoder(input_state, decoder_state)
+        else:
+            # Autoregressive feedback: embed the last generated token
+            prev_tok = torch.tensor([generated[-1]], dtype=torch.long, device=device)
+            input_state = model.encoder.embed(prev_tok)
             
-            next_token = int(logits[0].argmax().item())
-            tokens.append(next_token)
-            generated.append(next_token)
-            
-        except Exception as e:
-            print(f"Generation error: {e}")
-            break
-    
+        logits, decoder_state = model.decoder(input_state, decoder_state)
+        next_token = int(logits[0].argmax().item())
+        generated.append(next_token)
+
     chars = []
     for tid in generated:
         b = ID_TO_BYTE.get(tid)

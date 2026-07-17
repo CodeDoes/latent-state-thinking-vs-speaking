@@ -1,8 +1,8 @@
 {
-  "final_accuracy": 0.7109375,
-  "best_accuracy": 0.671875,
-  "total_steps": 2000,
-  "elapsed_s": 75.1,
-  "params": 117578,
-  "git_hash": "7479097b9a302e0aeb903a4e6e747a4921d121b2"
+  "final_accuracy": 0.0234375,
+  "best_accuracy": 0.015625,
+  "total_steps": 50,
+  "elapsed_s": 13.6,
+  "params": 662474,
+  "git_hash": "c606ed2a0caf19615e7f00af945794461c15b473"
 }
