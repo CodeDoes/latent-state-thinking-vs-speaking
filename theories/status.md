@@ -54,6 +54,19 @@ small systems, small experiments, prove one thing at a time, no emergence.
   viewport with zoom/pan/quantization for massive content.
   Status: [`screen-viewport-zoom-pan.status.md`](screen-viewport-zoom-pan.status.md).
 
+## Memory / growth threads
+- [`theories/dendrite_memory.md`](dendrite_memory.md) — frozen RWKV + LoRA-debra branches with hash-gated lifecycle. **Superseded by `dendrite_growth` (architectural-extensions framing).** Status: [`dendrite_memory.status.md`](dendrite_memory.status.md).
+- [`theories/dendrite_growth.md`](dendrite_growth.md) — RWKV trunk that grows new architectural branches (cross-attn/residual/output-head/vocab/state). Status: [`dendrite_growth.status.md`](dendrite_growth.status.md).
+- [`theories/delta-mem.md`](delta-mem.md) — stateful adapters inside transformer attention (Delta-rule + RWKV-state). Status: no status file yet.
+
+## Application threads
+- [`theories/realtime_ai.md`](realtime_ai.md) — AI that constantly learns from device streams (wifi/bluetooth/PC telemetry). Status: [`realtime_ai.status.md`](realtime_ai.status.md).
+- [`theories/ultimate_thesis.md`](ultimate_thesis.md) — consolidated "small systems, fast experiments" thesis tying together all threads. Status: [`ultimate_thesis.status.md`](ultimate_thesis.status.md).
+
+## Working method
+- [`theories/working_method.md`](working_method.md) — the operating principles (observable training, git-bound, single-variable, etc.). Status: [`working_method.status.md`](working_method.status.md).
+- [`theories/smoke_test_methodology.md`](smoke_test_methodology.md) — 1-minute smoke tests with learnable-pattern synth data. Status: [`smoke_test_methodology.status.md`](smoke_test_methodology.status.md).
+
 ## Other threads (filed, not primary)
 - [`theories/progressive-expansion.md`](progressive-expansion.md) —
   proof status: [`theories/progressive-expansion.status.md`](progressive-expansion.status.md).
