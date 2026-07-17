@@ -1,0 +1,35 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.03125,
+    "best_acc": 0.03125,
+    "loss": 4.287822723388672,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 44\nstars could be bright near the shore.\nSubtract 11 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 33",
+    "sample_prediction": "SS0001000001000100000100100000010010000100010000100010000011000100000000010010001000100000010111000000011000011010000101001100011000100001010010000001011000011011000101000110001000101000101010100101001001010101100000100101001000100100001000000000000011100010010001100001100001011010110001010100",
+    "sample_answers": [
+      "33"
+    ]
+  },
+  {
+    "step": 5,
+    "accuracy": 0.0,
+    "best_acc": 0.03125,
+    "loss": 3.6334660053253174,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 73\nstars could be bright near the shore.\nSubtract 15 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 58",
+    "sample_prediction": "022111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "58"
+    ]
+  },
+  {
+    "step": 10,
+    "accuracy": 0.0625,
+    "best_acc": 0.0625,
+    "loss": 3.244089126586914,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 87\nstars could be bright near the shore.\nSubtract 10 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 77",
+    "sample_prediction": "011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "77"
+    ]
+  }
+]
