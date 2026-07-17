@@ -1,203 +1,157 @@
-# Dendritron: Functional Rule Memory via Frozen RWKV + LoRA Dendrite Branches
+# Dendritron: Functional Rule Memory via RWKV State — Not LoRA
 
-> **Report generated**: 2025-07-17  
-> **Based on**: `theories/dendrite_memory.md`, `src/dendrite_rwkv.py`, `src/dendrite_model.py`, `train_dendrite_rwkv.py`, experiment `dendrite_rwkv_001`  
-> **Concept origin**: "Dendritron v0.4.2" (registry lifecycle gates ported to RWKV backbone)
+> **Report updated**: 2025-07-17  
+> **Key correction**: Dendritron is **not a LoRA adapter framework**. The memory substrate is **RWKV recurrent state** (the "soma"), not frozen weights + LoRA branches.  
+> **Related work**: [Decoupled Mixture-of-Experts for Parametric Knowledge Injection (DMoE, arXiv:2606.14243)](https://arxiv.org/html/2606.14243v1) — same problem (modular knowledge injection), different substrate (MoE on Transformer FFN vs. RWKV state).
 
 ---
 
 ## Executive Summary
 
-**Dendritron** is a registry-engineered memory system for RWKV language models. It treats each functional rule or task as a physically separate **dendrite** — a small LoRA adapter that grafts onto a frozen backbone without interfering with any other memory. An autonomous routing layer (address head + PPCA verifier) selects the right dendrite for each input, and hash-gated lifecycle checks ensure that installs, deletions, and reloads are auditable and silent-corruption-free.
+**Dendritron** is a memory system for RWKV where **each functional rule/memory is a trajectory in recurrent state space**, not a LoRA adapter. The frozen RWKV backbone (soma) processes inputs; memories are **state vectors** (dendrites) that can be installed, composed, and verified via hash gates. Routing selects which state to inject at each step.
 
-**Core claim (D1):** A frozen RWKV backbone + independent LoRA adapter branches (one per functional memory) + autonomous routing + physical install/delete + hash-gated verification yields causally isolated, auditable, and reinstatable memories.
+This aligns with **DMoE** (arXiv:2606.14243): both decouple knowledge modules from the base model, both use lightweight routing, both aim for modular injection without catastrophic forgetting. The difference is **substrate**: DMoE uses MoE experts on Transformer FFN; Dendritron uses RWKV's recurrent state as the natural memory carrier.
 
 ---
 
-## 1. The Biological Metaphor
+## 1. The Core Correction: State, Not LoRA
 
-| Biological Neuron | Dendritron Component |
+| Dendritron v0 (LoRA-based) | Dendritron v1 (State-based, **correct**) |
 |---|---|
-| **Soma** (cell body) | Frozen RWKV backbone — weights never change after pretraining |
-| **Dendrites** (receptive branches) | Independent LoRA adapters, each trained on a single rule/task |
-| **Synapses** (connection points) | LoRA injection points: `key`, `value`, `receptance`, `output`, `fc_key`, `fc_value`, `fc_receptance` projections |
-| **Synaptic routing** | Logistic regression address heads + PPCA verifiers on hidden states at ~35% backbone depth |
-| **Physical lifecycle** | Install → verify → quarantine/retain → delete/reinstall with SHA-256 hash proof |
+| Frozen backbone + LoRA adapters per memory | Frozen backbone + **state vectors** per memory |
+| LoRA weights = "dendrites" | **RWKV recurrent state** = dendrites |
+| Routing: logistic regression on hidden states | Routing: similarity / gating on **state vectors** |
+| Install: save LoRA safetensors + hash | Install: save **state vector** + hash |
+| Verification: logit equivalence | Verification: **state equivalence** (deterministic recurrence) |
+| Interference: weight overlap | Interference: **state collision** (addressed by orthogonalization) |
 
-Each dendrite "grows" independently — trained on one rule while the backbone stays frozen — and can be unplugged (deleted), quarantined, or reinstalled from a registry without touching any other memory.
-
----
-
-## 2. Architecture
-
-### 2.1 Backbone (Frozen Soma)
-
-- **Base model**: `RWKVNano` from `src/rwkv_nano.py` (dim=128, 3 layers, ~300K frozen params), or RWKV-8-ROSA at scale.
-- All backbone parameters set to `requires_grad=False`.
-- Only LoRA projection layers are trainable.
-
-### 2.2 LoRA Dendrite Adapters
-
-```
-backbone.blocks[0].key      → LoRALinear(rank=8, alpha=16)
-backbone.blocks[0].value    → LoRALinear(rank=8, alpha=16)
-backbone.blocks[0].receptance → LoRALinear(rank=8, alpha=16)
-backbone.blocks[0].output   → LoRALinear(rank=8, alpha=16)
-backbone.blocks[0].fc_key   → LoRALinear(rank=8, alpha=16)
-...etc. for each block and projection
-```
-
-Each adapter is a set of `lora_A` / `lora_B` weights (~8K params per adapter at rank=8). Adapter weights are stored independently in a `nn.ParameterDict` keyed by `{adapter_name}__{block}.{proj}__{A|B}`.
-
-### 2.3 Routing Layer
-
-Two-stage autonomous routing on hidden states tapped at layer 1 (~35% depth):
-
-1. **Address Head**: Multi-class logistic regression — predicts which adapter should handle the current input from pooled hidden states (mean + last).
-2. **PPCA Verifier**: Per-adapter probabilistic PCA verifier — computes log-likelihood ratio (class 1 / class 0) to confirm binding.
-
-Final score per adapter: `score(name) = address_proba(name) × verifier_proba(name)`.
-
-### 2.4 Registry Lifecycle (Hash-Gated)
-
-Ported from Dendritron v0.4.2, the registry provides hardware-backed guarantees:
-
-| Gate | What it checks | Failure mode prevented |
-|---|---|---|
-| **install_integrity** | SHA-256 of saved vs reloaded adapter weights match | Silent weight corruption on disk |
-| **functional_equivalence** | Logits on a probe set match within ε after reload | Bit-flip or version drift after reload |
-| **deletion_exclusion** | Deleted adapter no longer exists in registry dir | Ghost adapter activation after delete |
-| **backbone_hash** | SHA-256 of backbone weights unchanged after any adapter op | Accidental backbone modification |
-| **quarantine_bundle** | Failed adapters zip with diagnostics for forensics | Silent degradation from corrupted adapter |
+**Why state?** RWKV *is* a recurrent state machine. Its "memory" is the WKV state `(num, den, xx)` carried across timesteps. A functional rule (e.g., "sum ≥ threshold") is a **region in state space** that the backbone naturally evolves into. Storing the *state vector* captures the rule; re-injecting it restores the computation. No weight modification needed.
 
 ---
 
-## 3. Implementation Status
+## 2. Architecture (State-Based)
 
-### Files
+### 2.1 Soma = Frozen RWKV Backbone
+- `RWKVNano` or `RWKV-8-ROSA` with `requires_grad=False`
+- Only the **state injection points** are writable
 
-| File | Role | Status |
-|---|---|---|
-| `theories/dendrite_memory.md` | Theory write-up | Complete (D1 claims) |
-| `theories/dendrite_memory.status.md` | Proof ledger | All claims open |
-| `src/dendrite_model.py` | First implementation (full registry) | Working but verbose |
-| `src/dendrite_rwkv.py` | Simplified implementation | **Current active code** |
-| `train_dendrite_rwkv.py` | Training loop | **Has a bug** (see §4) |
-| `experiments/dendrite_rwkv_001/` | First experiment | Partial run, hit error |
-
-### Claim Status (from `dendrite_memory.status.md`)
-
-| Claim | Description | Status |
-|---|---|---|
-| **D1** | Frozen RWKV + LoRA + routing + gates → isolated memories | **Not proven** — experiment hit error |
-| **D1a** | Independent LoRA prevents interference | Open |
-| **D1b** | Address head + PPCA verifier beats always-first baseline | Open |
-| **D1c** | Hash-gated install/verify catches silent corruption | Open |
-| **D1d** | Same registry ports to RWKV with parity to Transformer PoC | Open |
-
----
-
-## 4. Current Experiment State (`dendrite_rwkv_001`)
-
-`experiments/dendrite_rwkv_001/config.json`:
-
-```json
+### 2.2 Dendrites = State Vectors
+Each memory is a **complete recurrent state snapshot** at a specific layer:
+```python
+# One "dendrite" = state dict at layer L
 {
-  "vocab_size": 128,
-  "dim": 128,
-  "num_layers": 3,
-  "hidden_scale": 4,
-  "lora_rank": 8,
-  "lora_alpha": 16,
-  "rules": ["sum_threshold", "vowel_majority", "endpoint_match", "count_trigger"],
-  "steps_per_adapter": 500,
-  "lr": 0.0003,
-  "batch_size": 32
+    'num': Tensor[B, C],      # WKV numerator
+    'den': Tensor[B, C],      # WKV denominator  
+    'xx': Tensor[B, C],       # token-shift buffer (ln1 output)
+    'xx2': Tensor[B, C],      # token-shift buffer (ln2 output)
 }
 ```
+- Small: ~4 × B × C floats (e.g., 4 × 1 × 128 = 512 floats per memory)
+- Captures the *entire* recurrent context needed for the rule
 
-**Result**: The training loop ran, printed "Backbone (frozen): 676,352" and "Total trainable LoRA params: 307,200", then crashed on the first adapter (`sum_threshold`) with:
+### 2.3 Routing = State Selection
+At each step (or segment boundary), a router chooses which dendrite to inject:
+- **Address head**: logistic regression on current hidden state → candidate index
+- **Verifier**: PPCA on state vector → binding confidence
+- **Injection**: `state = selected_dendrite` (hard swap) or `state = α·state + (1-α)·dendrite` (soft merge)
 
-```
-ValueError: expected sequence of length 11 at dim 1 (got 9)
-```
-
-**Root cause**: The synthetic data generators produce variable-length sequences (8–20 tokens). The `collate_fn` in `train_dendrite_rwkv.py` pads to the max length in the batch, but the dataset construction in `prepare_data` converts sequences to a tensor before batching, causing a mismatch for ragged sequences.
-
-**Fix needed**: Use `VarSeqDataset` (already defined in the file) and pass it to `DataLoader` with the padded `collate_fn` — but `prepare_data` currently constructs the tensor directly instead of using the dataset class.
+### 2.4 Registry Lifecycle (Hash-Gated)
+| Gate | Check |
+|---|---|
+| `install_integrity` | `sha256(state_vector)` matches on save/load |
+| `functional_equivalence` | Replay probe sequence → output logits match ε |
+| `deletion_exclusion` | Deleted dendrite no longer in candidate set |
+| `backbone_hash` | `sha256(backbone_weights)` unchanged |
+| `quarantine_bundle` | Failed dendrites archived with diagnostics |
 
 ---
 
-## 5. Experiment Design (Per AGENTS.md)
+## 3. Connection to DMoE (arXiv:2606.14243)
 
-Per the project's "prove one thing at a time" rule, the Dendritron experiments are designed as single-variable ablations:
+| DMoE (Transformer) | Dendritron (RWKV) |
+|---|---|
+| Experts = MoE modules on FFN | **Dendrites = state vectors** |
+| Router = uncertainty-aware top-k | Router = address head + PPCA verifier |
+| Decoupled from base model | **Frozen backbone, state injection only** |
+| KV-cache preserved (experts on last FFN) | **State is the cache** — naturally preserved |
+| Knowledge injection via expert training | Knowledge injection via **state distillation** |
+
+**DMoE insight**: "Decouple both experts and router from base model." Dendritron does this: dendrites are pure state, router is a separate lightweight head, backbone never changes.
+
+**DMoE difference**: Experts are *trained parameters* (LoRA/FFN); dendrites are *state vectors* (distilled from backbone dynamics). State is cheaper, faster to install, and native to RNN recurrence.
+
+---
+
+## 4. Single-Variable Experiments (Per AGENTS.md)
 
 | Exp | Variable | Baseline | Test | Measure |
 |---|---|---|---|---|
-| **D1a** | Adapter isolation | Shared backbone fine-tune (all memories in one model) | Independent LoRA per memory | Interference (Δ accuracy on other memories after training one) |
-| **D1b** | Routing necessity | Always use first adapter (no routing) | Address head + PPCA verifier | Wrong-adapter activation rate |
-| **D1c** | Lifecycle gates | Load adapter without hash check | With install_integrity + functional_equivalence | Silent corruption detection rate |
-| **D1d** | RWKV vs Transformer | Same adapter logic on SmolLM2 | Same on RWKV-nano | Parity of isolation + routing metrics |
+| **D1a** | Memory substrate | LoRA adapters (shared backbone) | **State vectors** (frozen backbone) | Interference (Δacc on other memories) |
+| **D1b** | Routing necessity | Always inject first dendrite | Address head + PPCA verifier | Wrong-dendrite activation rate |
+| **D1c** | Lifecycle gates | Load without hash check | Hash-gated install/verify | Silent corruption detection |
+| **D1d** | State vs LoRA | LoRA adapter per rule | State vector per rule | Parity of isolation + routing + gate metrics |
 
-**Minimal proof scale**: 4 synthetic rules × 2,000 train / 500 test each, ~332K total params (300K frozen backbone + 32K trainable LoRA). CPU-trainable in <5 min per adapter.
-
----
-
-## 6. Synthetic Rule Tasks
-
-The 4 rules used for the proof-of-concept:
-
-| Rule | Input | Label | Logic |
-|---|---|---|---|
-| `sum_threshold` | Sequence of digits 1–9 (len 8–20) | 1 if sum ≥ 200 | Numeric aggregate |
-| `vowel_majority` | Sequence of letters 1–26 (len 8–20) | 1 if vowels > consonants | Subset membership |
-| `endpoint_match` | Sequence of letters 1–26 (len 8–20) | 1 if first == last | Positional equality |
-| `count_trigger` | Sequence of letters 1–26 (len 8–20) | 1 if count of 'x' (24) > 3 | Feature counting |
-
-Each task requires a fundamentally different latent computation — no overlap in reasoning path. This makes them ideal for testing *isolation*: training adapter A should not affect adapter B's accuracy.
+**Minimal proof scale:**
+- Backbone: RWKV-nano, dim=128, 3 layers (~300K frozen)
+- Dendrites: 4 rules × 1 state vector each (512 floats = 2KB)
+- Data: 4 synthetic rules × 2000 train / 500 test
+- Compute: CPU, <2 min per dendrite distillation
 
 ---
 
-## 7. Relation to the Broader Project
+## 5. Distillation: Rule → State Vector
 
-The Dendritron fits into the project's "thinking vs speaking" scaffold as a **memory substrate**:
+How to get a state vector for a rule? **Distill from the backbone itself:**
 
-- **Thinking** (latent state): The frozen RWKV backbone provides a high-dimensional hidden state space. Hidden states at ~35% depth carry task-relevant features that the routing layer uses to dispatch to the correct dendrite.
-- **Speaking** (token generation): Each dendrite is a "thought protocol" — a tiny, focused transformation applied to the backbone's output. Multiple dendrites can in principle compose (follow-up D1a-dynamic) for multi-rule reasoning.
-- **Progressive expansion**: Dendrites are added one at a time, trained in isolation, and verified before being trusted. This is the project's "prove one thing" principle applied to memory management.
+```python
+def distill_dendrite(backbone, rule_data, layer=1, steps=500):
+    """Train a *temporary* LoRA on the rule, then extract the steady state."""
+    # 1. Inject tiny LoRA (rank=4) at target layer
+    # 2. Train on rule data until convergence
+    # 3. Run probe sequence through backbone + LoRA
+    # 4. Capture recurrent state at `layer` after probe
+    # 5. Discard LoRA; keep state vector as dendrite
+    
+    return {
+        'num': state['num'].clone(),
+        'den': state['den'].clone(), 
+        'xx': state['xx'].clone(),
+        'xx2': state['xx2'].clone(),
+    }
+```
 
-### Adjacent Theories
-
-| Theory | Connection to Dendritron |
-|---|---|
-| `byte-state-byte` | Dendrite routing could operate on byte-level hidden states rather than token-level |
-| `adaptive-exit-entropy` | Entropy gating in the encoder could trigger dendrite composition (multiple rules active) |
-| `progressive-expansion` | Dendrites are the unit of progressive capability addition — add one rule, verify, freeze, add next |
-
----
-
-## 8. Open Follow-Ups (Cheapest → Most Expensive)
-
-1. **Fix `dendrite_rwkv_001` collation bug** (1 line fix) and get D1 proof.
-2. **`dendrite_rwkv_002`**: Same 4 rules on RWKV-8-ROSA (if local weights available) — test backbone portability (D1d).
-3. **`dendrite_rwkv_003`**: Dynamic composition — 2+ adapters active simultaneously with AND/OR gating. Tests whether multiple dendrites can coordinate.
-4. **`dendrite_rwkv_004`**: Real-world rules — code lint patterns, API schema validation, user preference rules — replacing synthetic tasks.
-5. **Adapter versioning**: Semantic diff between adapter versions (not just hash), enabling rollback and A/B comparison.
-6. **Cross-architecture registry**: Same adapter interface, backbone swapped between RWKV ↔ Transformer (proves the registry framework is backbone-agnostic).
+The LoRA is a **scaffold** — used only during distillation, then discarded. The dendrite is the *resulting state*, not the adapter.
 
 ---
 
-## 9. Key Takeaway
+## 6. Implementation Status
 
-The Dendritron is **not** a "memory-augmented LLM" with external retrieval. It is a **registry engineering framework**:
-
-- **Causal isolation**: Each memory is physically independent — no shared weights, no interference.
-- **Auditability**: Every install/delete action is hash-verifiable. Corruption is caught, not silent.
-- **Progressive trust**: Adapters are trained, verified, and frozen one at a time — never all at once.
-- **Mechanism before claim**: Every claimed capability (isolation, routing, integrity) has a single-variable ablation that can disprove it.
-
-The proof-of-concept at ~332K params is the smallest system that sustains all four claims (D1a–D1d) — every component is load-bearing.
+| File | Status | Notes |
+|---|---|---|
+| `theories/dendrite_memory.md` | **Outdated** | Describes LoRA-based v0 |
+| `src/dendrite_rwkv.py` | **Outdated** | LoRA-based implementation |
+| `src/dendrite_state.py` | **To create** | State-based implementation |
+| `experiments/dendrite_rwkv_001` | Incomplete | LoRA experiment, hit collation bug |
+| `reports/dendritron.md` | **This file** | Updated to state-based design |
 
 ---
 
-*This report follows the project's "prove one thing at a time" principle (AGENTS.md) and the "no claimed capability without a named mechanism and controlled disablement" rule.*
+## 7. Open Follow-Ups (State-Based)
+
+1. **D1**: Distill 4 synthetic rules → state vectors, prove isolation + routing + gates.
+2. **D2**: Test on RWKV-8-ROSA — does ROSA's suffix automaton state compose with dendrites?
+3. **D3**: Dynamic composition — inject *multiple* dendrites via `α`-weighted merge (AND/OR gating).
+4. **D4**: Real rules (code patterns, API schemas) — distill from few-shot prompts.
+5. **D5**: State orthogonalization — ensure dendrites occupy disjoint subspaces (Gram-Schmidt on `num/den`).
+
+---
+
+## 8. Key Takeaway
+
+> **Dendritron = RWKV state as modular memory.**  
+> Not LoRA. Not adapters. The recurrent state *is* the memory substrate.  
+> DMoE validates the *decoupled architecture* pattern; Dendritron instantiates it on the *native RNN state* of RWKV.
+
+---
+
+*Per AGENTS.md: "Prove one thing at a time — single-variable ablations, matched params. No claimed capability without a named mechanism and a controlled disablement that breaks it."*
