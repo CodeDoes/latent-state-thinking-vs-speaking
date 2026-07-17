@@ -9,13 +9,10 @@ from typing import List, Tuple
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
 
 from src.dendrite_rwkv import (
     DendriteRWKV,
-    count_base_params,
-    count_lora_params,
-    apply_lora_to_rwkv,
-    train_adapter,
     gen_sum_threshold,
     gen_vowel_majority,
     gen_endpoint_match,
@@ -64,11 +61,61 @@ def collate_fn(batch):
 def prepare_data(gen_fn, args) -> Tuple[DataLoader, DataLoader]:
     """Generate data and create loaders."""
     data = gen_fn(*args)
-    # Split into sequences and labels
     sequences = [seq for seq, _ in data]
     labels = [label for _, label in data]
     dataset = TensorDataset(torch.tensor(sequences, dtype=torch.long), torch.tensor(labels, dtype=torch.long))
     return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
+
+
+def train_adapter(
+    model: DendriteRWKV,
+    adapter_name: str,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    steps: int = 500,
+    lr: float = 3e-4,
+    device: str = 'cuda',
+) -> Dict:
+    """Train one adapter with frozen backbone."""
+    model.activate_adapter(adapter_name)
+    model.train()
+
+    # Get only active LoRA params
+    active_params = []
+    for name, param in model.named_parameters():
+        if 'lora_' in name and param.requires_grad:
+            active_params.append(param)
+
+    optimizer = torch.optim.AdamW(active_params, lr=lr)
+
+    best_val = 0
+    for step in range(steps):
+        model.train()
+        for x, y in train_loader:
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
+            logits = model(x)
+            loss = F.cross_entropy(logits[:, -1], y)
+            loss.backward()
+            optimizer.step()
+
+        # Validation
+        if step % 50 == 0 or step == steps - 1:
+            model.eval()
+            correct = total = 0
+            with torch.no_grad():
+                for x, y in val_loader:
+                    x, y = x.to(device), y.to(device)
+                    logits = model(x)
+                    pred = logits[:, -1].argmax(-1)
+                    correct += (pred == y).sum().item()
+                    total += y.numel()
+            val_acc = correct / total
+            if val_acc > best_val:
+                best_val = val_acc
+            print(f"  step {step}: val_acc={val_acc:.4f} (best={best_val:.4f})")
+
+    return {'val_acc': best_val, 'steps': steps}
 
 
 def main():
@@ -76,20 +123,19 @@ def main():
     print(f"Experiment dir: {EXP_DIR}")
 
     # Create model
-    configs = [{'name': r['name']} for r in RULES]
+    adapter_names = [r['name'] for r in RULES]
     model = DendriteRWKV(
         vocab_size=VOCAB_SIZE,
         dim=DIM,
         num_layers=NUM_LAYERS,
         hidden_scale=HIDDEN_SCALE,
-        adapter_configs=configs,
+        adapter_names=adapter_names,
         lora_rank=LORA_RANK,
         lora_alpha=LORA_ALPHA,
     ).to(DEVICE)
 
-    print(f"Backbone (frozen): {count_base_params(model.backbone):,}")
-    for name in model.adapter_names:
-        print(f"Adapter {name} LoRA: {count_lora_params(model.adapters[name]):,}")
+    print(f"Backbone (frozen): {sum(p.numel() for p in model.backbone.parameters() if not p.requires_grad):,}")
+    print(f"Total trainable LoRA params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     # Save config
     config = {
@@ -129,8 +175,8 @@ def main():
         print(f"Result: {result}")
 
         # Save adapter weights
-        adapter = model.adapters[name]
-        torch.save(adapter.state_dict(), EXP_DIR / f"adapter_{name}.pt")
+        adapter_params = model.get_active_lora_params(name)
+        torch.save(adapter_params, EXP_DIR / f"adapter_{name}.pt")
 
     # Save results
     with open(EXP_DIR / "results.json", "w") as f:
