@@ -8,8 +8,9 @@ from typing import List, Tuple
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 import numpy as np
+from safetensors.torch import save_file
 
 from src.dendrite_rwkv import (
     DendriteRWKV,
@@ -58,12 +59,25 @@ def collate_fn(batch):
     return torch.tensor(padded_x, dtype=torch.long), torch.tensor(labels, dtype=torch.long)
 
 
+class VarSeqDataset(Dataset):
+    """Dataset for variable-length sequences."""
+    def __init__(self, sequences, labels):
+        self.sequences = sequences
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.sequences)
+
+    def __getitem__(self, idx):
+        return self.sequences[idx], self.labels[idx]
+
+
 def prepare_data(gen_fn, args) -> Tuple[DataLoader, DataLoader]:
     """Generate data and create loaders."""
     data = gen_fn(*args)
     sequences = [seq for seq, _ in data]
     labels = [label for _, label in data]
-    dataset = TensorDataset(torch.tensor(sequences, dtype=torch.long), torch.tensor(labels, dtype=torch.long))
+    dataset = VarSeqDataset(sequences, labels)
     return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
 
 
@@ -174,9 +188,9 @@ def main():
         results[name] = result
         print(f"Result: {result}")
 
-        # Save adapter weights
+        # Save adapter weights as safetensors
         adapter_params = model.get_active_lora_params(name)
-        torch.save(adapter_params, EXP_DIR / f"adapter_{name}.pt")
+        save_file(adapter_params, EXP_DIR / f"adapter_{name}.safetensors")
 
     # Save results
     with open(EXP_DIR / "results.json", "w") as f:

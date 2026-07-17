@@ -13,6 +13,7 @@ import hashlib
 import shutil
 import random
 import numpy as np
+from safetensors.torch import save_file, load_file
 from sklearn.linear_model import LogisticRegression
 from sklearn.decomposition import PCA
 
@@ -139,12 +140,12 @@ class AdapterRegistry:
         adapter_dir = self.registry_dir / name
         adapter_dir.mkdir(exist_ok=True)
 
-        # Save
-        torch.save(lora_params, adapter_dir / "adapter.pt")
+        # Save as safetensors
+        save_file(lora_params, adapter_dir / "adapter.safetensors")
 
         # Gate 1: install integrity
-        saved_hash = self._hash_file(adapter_dir / "adapter.pt")
-        reloaded = torch.load(adapter_dir / "adapter.pt")
+        saved_hash = self._hash_file(adapter_dir / "adapter.safetensors")
+        reloaded = load_file(adapter_dir / "adapter.safetensors")
         reloaded_hash = self._hash_state(reloaded)
         gate1 = saved_hash == reloaded_hash
 
@@ -176,7 +177,7 @@ class AdapterRegistry:
 
     def load(self, name: str) -> Dict:
         adapter_dir = self.registry_dir / name
-        return torch.load(adapter_dir / "adapter.pt")
+        return load_file(adapter_dir / "adapter.safetensors")
 
 
 # ── Dendrite RWKV Model ────────────────────────────────────────────
