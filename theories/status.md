@@ -21,6 +21,39 @@ small systems, small experiments, prove one thing at a time, no emergence.
   (step-function and RWKV-based). Proof status:
   [`theories/byte-state-byte.status.md`](byte-state-byte.status.md).
 
+## B5 follow-up threads (single-variable ablations)
+- [`theories/injection-frequency.md`](injection-frequency.md) — front vs per-layer
+  core→decoder fusion. Status:
+  [`injection-frequency.status.md`](injection-frequency.status.md).
+- [`theories/dynamic-patch-vs-fixed.md`](dynamic-patch-vs-fixed.md) — fixed stride
+  vs surprise-threshold dynamic patching.
+  Status: [`dynamic-patch-vs-fixed.status.md`](dynamic-patch-vs-fixed.status.md).
+- [`theories/token-vs-byte-head.md`](token-vs-byte-head.md) — byte head 258 vs
+  token head 1k (dense vs sparse supervision).
+  Status: [`token-vs-byte-head.status.md`](token-vs-byte-head.status.md).
+- [`theories/rwkv-state-carry.md`](rwkv-state-carry.md) — zero init vs stateful
+  carry vs learned init for RWKV long memory.
+  Status: [`rwkv-state-carry.status.md`](rwkv-state-carry.status.md).
+- [`theories/adaptive-exit-entropy.md`](adaptive-exit-entropy.md) — entropy weight
+  sweep controlling loop collapse.
+  Status: [`adaptive-exit-entropy.status.md`](adaptive-exit-entropy.status.md).
+
+## Diffusion / terminal threads
+- [`theories/b3d-rwkv-nano.md`](b3d-rwkv-nano.md) — Triplet-Block Diffusion RWKV
+  at nano scale. Status:
+  [`b3d-rwkv-nano.status.md`](b3d-rwkv-nano.status.md).
+- [`theories/diffusion-grid-terminal.md`](diffusion-grid-terminal.md) — RWKV
+  diffusion over H×W byte grid, stochastic output commits when certainty > τ.
+  Status: [`diffusion-grid-terminal.status.md`](diffusion-grid-terminal.status.md).
+
+## Scratchboard / viewport threads
+- [`theories/movable-grid-scratchboard.md`](movable-grid-scratchboard.md) — text→pos
+  association, movable viewport, output-as-scratchboard.
+  Status: [`movable-grid-scratchboard.status.md`](movable-grid-scratchboard.status.md).
+- [`theories/screen-viewport-zoom-pan.md`](screen-viewport-zoom-pan.md) — screen
+  viewport with zoom/pan/quantization for massive content.
+  Status: [`screen-viewport-zoom-pan.status.md`](screen-viewport-zoom-pan.status.md).
+
 ## Other threads (filed, not primary)
 - [`theories/progressive-expansion.md`](progressive-expansion.md) —
   proof status: [`theories/progressive-expansion.status.md`](progressive-expansion.status.md).
