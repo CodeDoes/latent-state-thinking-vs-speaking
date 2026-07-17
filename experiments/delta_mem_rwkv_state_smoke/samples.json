@@ -1,0 +1,35 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 4.428791522979736,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 9\nstars could be bright near the shore.\nSubtract 18 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: -9",
+    "sample_prediction": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "-9"
+    ]
+  },
+  {
+    "step": 5,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 3.6504709720611572,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 34\nstars could be bright near the shore.\nSubtract 15 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 19",
+    "sample_prediction": "000001000000000000000000000000000000000000000000000000000007000000000000000000000000000000000000000000000000000000000700000700000000000000000000000000000000000000000000000070000000000000000000000000001000000000000000000000000000000000000000000000000100070000000000000000000000001000000000000100",
+    "sample_answers": [
+      "19"
+    ]
+  },
+  {
+    "step": 10,
+    "accuracy": 0.0625,
+    "best_acc": 0.0625,
+    "loss": 3.2343978881835938,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet Z = 16\nfish could be sour after the rain.\nSet Z to 28\nstars could be bright near the shore.\nSubtract 15 from Z\nrivers remain soft in the morning.\n\nQuestions:\n  What is the final value of Z?\n  Answer: 13",
+    "sample_prediction": "000001001011000100010010100000010101100100010000100010001001000100001110010010101000111100110101101010110110010010100100100101010100110111010110010100110110010010010011000010101001011101000101110101101000100011010100101011001010101011010110100110001111111010010111010100000001001001111001001110",
+    "sample_answers": [
+      "13"
+    ]
+  }
+]

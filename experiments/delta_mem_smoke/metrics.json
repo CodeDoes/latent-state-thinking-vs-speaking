@@ -1,0 +1,9 @@
+{
+  "final_accuracy": 1.0,
+  "best_accuracy": 1.0,
+  "total_steps": 10,
+  "elapsed_s": 51.2,
+  "params": 637154,
+  "git_hash": "c606ed2a0caf19615e7f00af945794461c15b473",
+  "mode": "delta_rule"
+}
