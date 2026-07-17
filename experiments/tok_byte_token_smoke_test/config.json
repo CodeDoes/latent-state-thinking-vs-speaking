@@ -1,0 +1,9 @@
+{
+  "exp_id": "tok_byte_token_smoke_test",
+  "vocab_mode": "token",
+  "token_vocab_size": 1024,
+  "bytes_per_token": 4,
+  "steps": 50,
+  "dim": 32,
+  "hypothesis": "byte dense supervision vs token sparse"
+}

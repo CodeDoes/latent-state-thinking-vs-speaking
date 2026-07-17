@@ -1,0 +1,13 @@
+step 500 acc 0.000
+Grid:
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+D D D D D D D D 
+
+traj: (0,0) (0,0) (0,0) (0,0) (0,0) (0,0) (0,0) (0,0) (0,0) (0,0) 
+Query pos [7, 6] true 25 pred 4

@@ -1,0 +1,16 @@
+{
+  "exp_id": "grid_recon_smoke_test",
+  "mode": "recon",
+  "grid_type": "random",
+  "H": 8,
+  "W": 8,
+  "steps": 50,
+  "dim": 32,
+  "layers": 2,
+  "block_size": 64,
+  "mask_ratio": 0.3,
+  "tau": 0.9,
+  "stateful": false,
+  "trace_enabled": false,
+  "hypothesis": "grid diffusion terminal with certainty trigger"
+}

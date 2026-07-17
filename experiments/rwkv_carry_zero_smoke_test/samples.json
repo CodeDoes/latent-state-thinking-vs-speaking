@@ -1,0 +1,13 @@
+[
+  {
+    "step": 1,
+    "loss": 4.304065227508545,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "digit_acc": 0.0,
+    "exact_correct": 0,
+    "total_answers": 96,
+    "digit_correct": 0,
+    "digit_total": 192
+  }
+]

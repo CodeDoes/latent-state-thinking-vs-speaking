@@ -1,0 +1,15 @@
+{
+  "exp_id": "viewport_fixed_32_500",
+  "mode": "fixed",
+  "H_world": 32,
+  "W_world": 32,
+  "H_view": 8,
+  "W_view": 8,
+  "D": 16,
+  "dim": 64,
+  "layers": 2,
+  "num_placements": 5,
+  "batch_size": 8,
+  "steps": 500,
+  "hypothesis": "movable viewport keeps context small (Hv*Wv) while handling massive world (Hw*Ww) via pan/zoom/quant"
+}

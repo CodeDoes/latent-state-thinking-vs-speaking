@@ -1,0 +1,7 @@
+{
+  "final_acc": 0.125,
+  "best_acc": 0.25,
+  "exp_id": "movable_grid_nogrid_500",
+  "mode": "nogrid",
+  "params": 116800
+}

@@ -1,0 +1,10 @@
+{
+  "final_acc": 0.25,
+  "best_acc": 0.5,
+  "exp_id": "viewport_fixed_32_500",
+  "mode": "fixed",
+  "params": 213973,
+  "context_per_step": 64,
+  "world_size": 1024,
+  "ratio": 16.0
+}

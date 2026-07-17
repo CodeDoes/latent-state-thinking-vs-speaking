@@ -1,0 +1,6 @@
+{"step": 1, "loss": 5.552960395812988}
+{"step": 10, "loss": 5.550478935241699}
+{"step": 20, "loss": 5.546597480773926}
+{"step": 30, "loss": 5.542787075042725}
+{"step": 40, "loss": 5.537069797515869}
+{"step": 50, "loss": 5.531025409698486, "decode_iters": 10, "decode_acc": 0.671875, "commit_history": [{"iter": 0, "committed": 0, "masked_before": 21}, {"iter": 1, "committed": 0, "masked_before": 21}, {"iter": 2, "committed": 0, "masked_before": 21}, {"iter": 3, "committed": 0, "masked_before": 21}, {"iter": 4, "committed": 0, "masked_before": 21}, {"iter": 5, "committed": 0, "masked_before": 21}, {"iter": 6, "committed": 0, "masked_before": 21}, {"iter": 7, "committed": 0, "masked_before": 21}, {"iter": 8, "committed": 0, "masked_before": 21}, {"iter": 9, "committed": 0, "masked_before": 21}]}

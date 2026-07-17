@@ -1,0 +1,21 @@
+{
+  "exp_id": "inj_freq_perlayer_smoke_test",
+  "fusion_mode": "per_layer",
+  "steps": 50,
+  "batch_size": 8,
+  "max_len": 128,
+  "lr": 0.0003,
+  "dim": 32,
+  "patch_size": 4,
+  "enc_layers": 2,
+  "core_layers": 2,
+  "dec_layers": 2,
+  "enc_max_loops": 3,
+  "core_depth_loops": 2,
+  "dec_max_loops": 3,
+  "entropy_weight": 0.01,
+  "dynamic_patch": false,
+  "patch_threshold": 0.7,
+  "params": 70341,
+  "hypothesis": "per-layer vs front fusion"
+}

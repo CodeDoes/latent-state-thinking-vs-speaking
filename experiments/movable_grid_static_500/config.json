@@ -1,0 +1,14 @@
+{
+  "exp_id": "movable_grid_static_500",
+  "mode": "static",
+  "H": 8,
+  "W": 8,
+  "D": 32,
+  "dim": 64,
+  "layers": 2,
+  "num_placements": 10,
+  "batch_size": 8,
+  "steps": 500,
+  "lr": 0.0003,
+  "hypothesis": "movable grid + scratchboard beats static and no-grid on Place&Query"
+}

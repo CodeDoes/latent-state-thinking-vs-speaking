@@ -1,0 +1,6 @@
+{"step": 0, "loss": 5.757120609283447, "ent_loss": -1.32341730594635, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}
+{"step": 10, "loss": 5.287694454193115, "ent_loss": -1.3477134704589844, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}
+{"step": 20, "loss": 4.909890651702881, "ent_loss": -1.354447603225708, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}
+{"step": 30, "loss": 4.737517833709717, "ent_loss": -1.3700370788574219, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}
+{"step": 40, "loss": 4.578193187713623, "ent_loss": -1.3766040802001953, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}
+{"step": 49, "loss": 4.402144908905029, "ent_loss": -1.3802158832550049, "enc_loops": 3, "core_loops": 2, "dec_loops": 1, "latents": 32, "rho": 4.0}

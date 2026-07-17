@@ -1,0 +1,8 @@
+{
+  "final_loss": 4.591180801391602,
+  "best_loss": 4.591180801391602,
+  "params": 70341,
+  "fusion_mode": "per_layer",
+  "exp_id": "inj_freq_perlayer_smoke_test",
+  "steps": 50
+}

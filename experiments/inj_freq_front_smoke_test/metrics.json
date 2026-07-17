@@ -1,0 +1,8 @@
+{
+  "final_loss": 4.402144908905029,
+  "best_loss": 4.402144908905029,
+  "params": 66181,
+  "fusion_mode": "front",
+  "exp_id": "inj_freq_front_smoke_test",
+  "steps": 50
+}

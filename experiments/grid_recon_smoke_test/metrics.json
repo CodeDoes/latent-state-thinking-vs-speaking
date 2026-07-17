@@ -1,0 +1,7 @@
+{
+  "final_loss": 5.531025409698486,
+  "best_loss": 5.531025409698486,
+  "exp_id": "grid_recon_smoke_test",
+  "mode": "recon",
+  "params": 44674
+}

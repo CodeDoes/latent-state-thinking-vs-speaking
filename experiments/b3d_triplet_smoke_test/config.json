@@ -1,0 +1,15 @@
+{
+  "exp_id": "b3d_triplet_smoke_test",
+  "mode": "triplet",
+  "steps": 50,
+  "batch_size": 8,
+  "max_len": 32,
+  "dim": 32,
+  "layers": 3,
+  "block_size": 8,
+  "mask_ratio": 0.3,
+  "tau": 0.9,
+  "vocab_mode": "char",
+  "lr": 0.0003,
+  "hypothesis": "triplet-block diffusion vs AR at nano"
+}

@@ -1,0 +1,7 @@
+{
+  "final_accuracy": 0.0,
+  "best_accuracy": 0.0,
+  "exp_id": "rwkv_carry_zero_smoke_test",
+  "mode": "zero",
+  "params": 171530
+}

@@ -1,0 +1,10 @@
+{
+  "final_acc": 0.0,
+  "best_acc": 0.375,
+  "exp_id": "viewport_movable_smoke",
+  "mode": "movable",
+  "params": 96789,
+  "context_per_step": 64,
+  "world_size": 256,
+  "ratio": 4.0
+}

@@ -1,0 +1,317 @@
+{
+  "0.8": {
+    "iters": 20,
+    "commit_history": [
+      {
+        "iter": 0,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 1,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 2,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 3,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 4,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 5,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 6,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 7,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 8,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 9,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 10,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 11,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 12,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 13,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 14,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 15,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 16,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 17,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 18,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 19,
+        "committed": 0,
+        "total_masked_before": 8
+      }
+    ]
+  },
+  "0.9": {
+    "iters": 20,
+    "commit_history": [
+      {
+        "iter": 0,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 1,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 2,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 3,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 4,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 5,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 6,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 7,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 8,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 9,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 10,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 11,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 12,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 13,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 14,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 15,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 16,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 17,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 18,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 19,
+        "committed": 0,
+        "total_masked_before": 8
+      }
+    ]
+  },
+  "0.95": {
+    "iters": 20,
+    "commit_history": [
+      {
+        "iter": 0,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 1,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 2,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 3,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 4,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 5,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 6,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 7,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 8,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 9,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 10,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 11,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 12,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 13,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 14,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 15,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 16,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 17,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 18,
+        "committed": 0,
+        "total_masked_before": 8
+      },
+      {
+        "iter": 19,
+        "committed": 0,
+        "total_masked_before": 8
+      }
+    ]
+  }
+}

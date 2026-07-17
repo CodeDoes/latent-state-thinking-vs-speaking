@@ -1,0 +1,15 @@
+{
+  "exp_id": "viewport_fixed_smoke",
+  "mode": "fixed",
+  "H_world": 16,
+  "W_world": 16,
+  "H_view": 8,
+  "W_view": 8,
+  "D": 16,
+  "dim": 32,
+  "layers": 2,
+  "num_placements": 5,
+  "batch_size": 8,
+  "steps": 200,
+  "hypothesis": "movable viewport keeps context small (Hv*Wv) while handling massive world (Hw*Ww) via pan/zoom/quant"
+}

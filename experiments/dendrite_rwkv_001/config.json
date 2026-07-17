@@ -1,0 +1,17 @@
+{
+  "vocab_size": 128,
+  "dim": 128,
+  "num_layers": 3,
+  "hidden_scale": 4,
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "rules": [
+    "sum_threshold",
+    "vowel_majority",
+    "endpoint_match",
+    "count_trigger"
+  ],
+  "steps_per_adapter": 500,
+  "lr": 0.0003,
+  "batch_size": 32
+}

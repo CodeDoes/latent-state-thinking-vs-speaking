@@ -1,0 +1,10 @@
+{
+  "final_acc": 0.0,
+  "best_acc": 0.375,
+  "exp_id": "viewport_movable_32_500",
+  "mode": "movable",
+  "params": 213973,
+  "context_per_step": 64,
+  "world_size": 1024,
+  "ratio": 16.0
+}

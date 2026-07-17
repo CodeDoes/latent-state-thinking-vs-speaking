@@ -1,0 +1,13 @@
+{
+  "exp_id": "dyn_patch_fixed_smoke_test",
+  "patch_mode": "fixed",
+  "threshold": 0.7,
+  "min_patch": 2,
+  "max_patch": 8,
+  "steps": 50,
+  "dim": 32,
+  "patch_size": 4,
+  "dynamic_patch": false,
+  "warmup_steps": 0,
+  "hypothesis": "dynamic surprise patch vs fixed"
+}

@@ -1,0 +1,12 @@
+{
+  "exp_id": "rwkv_carry_zero_smoke_test",
+  "mode": "zero",
+  "steps": 100,
+  "batch_size": 8,
+  "max_len": 64,
+  "dim": 64,
+  "layers": 3,
+  "lr": 0.0003,
+  "noise_max": 10,
+  "hypothesis": "state carry vs zero init"
+}

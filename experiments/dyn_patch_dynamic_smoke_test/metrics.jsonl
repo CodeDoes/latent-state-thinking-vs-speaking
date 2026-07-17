@@ -1,0 +1,6 @@
+{"step": 0, "loss": 5.6031413078308105, "rho": 2.015748031496063, "mean_patch_len": 4, "std_patch_len": 0, "latents": 63.5, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}
+{"step": 10, "loss": 5.250380992889404, "rho": 2.0277227722772277, "mean_patch_len": 4, "std_patch_len": 0, "latents": 63.125, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}
+{"step": 20, "loss": 4.878419876098633, "rho": 2.0, "mean_patch_len": 4, "std_patch_len": 0, "latents": 64.0, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}
+{"step": 30, "loss": 4.6953654289245605, "rho": 2.019723865877712, "mean_patch_len": 4, "std_patch_len": 0, "latents": 63.375, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}
+{"step": 40, "loss": 4.517548561096191, "rho": 2.0237154150197627, "mean_patch_len": 4, "std_patch_len": 0, "latents": 63.25, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}
+{"step": 49, "loss": 4.367295742034912, "rho": 2.015748031496063, "mean_patch_len": 4, "std_patch_len": 0, "latents": 63.5, "enc_loops": 1, "core_loops": 2, "dec_loops": 1}

@@ -1,0 +1,13 @@
+step 500 acc 1.000
+Grid:
+E E E E E J E E 
+E E E L E E E E 
+E E E E E E E E 
+E E E E E E R E 
+E E E E E E E B 
+E E E E E E E E 
+P E E E S E E E 
+E J B Q E E E E 
+
+traj: (0,0) (3,7) (4,6) (3,1) (1,4) (5,0) (0,6) (1,7) (7,4) (6,3) 
+Query pos [2, 7] true 2 pred 2

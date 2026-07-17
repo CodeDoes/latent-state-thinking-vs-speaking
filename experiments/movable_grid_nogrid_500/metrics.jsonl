@@ -1,0 +1,11 @@
+{"step": 1, "loss": 3.496239423751831, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.0}
+{"step": 50, "loss": 3.475339412689209, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.0}
+{"step": 100, "loss": 3.4633736610412598, "aux_loss": 0.0, "acc": 0.25, "best_acc": 0.25}
+{"step": 150, "loss": 3.435779094696045, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.25}
+{"step": 200, "loss": 3.45275616645813, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.25}
+{"step": 250, "loss": 3.394442081451416, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.25}
+{"step": 300, "loss": 3.387988567352295, "aux_loss": 0.0, "acc": 0.125, "best_acc": 0.25}
+{"step": 350, "loss": 3.3531785011291504, "aux_loss": 0.0, "acc": 0.125, "best_acc": 0.25}
+{"step": 400, "loss": 3.3586182594299316, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.25}
+{"step": 450, "loss": 3.344372272491455, "aux_loss": 0.0, "acc": 0.0, "best_acc": 0.25}
+{"step": 500, "loss": 3.312779664993286, "aux_loss": 0.0, "acc": 0.125, "best_acc": 0.25}

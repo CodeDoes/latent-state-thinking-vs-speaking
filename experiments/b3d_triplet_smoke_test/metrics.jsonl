@@ -1,0 +1,6 @@
+{"step": 1, "loss": 4.317488670349121, "mode": "triplet"}
+{"step": 10, "loss": 4.312246799468994, "mode": "triplet"}
+{"step": 20, "loss": 4.304553031921387, "mode": "triplet"}
+{"step": 30, "loss": 4.295048236846924, "mode": "triplet"}
+{"step": 40, "loss": 4.28045654296875, "mode": "triplet"}
+{"step": 50, "loss": 4.264938831329346, "mode": "triplet"}

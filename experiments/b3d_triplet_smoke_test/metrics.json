@@ -1,0 +1,7 @@
+{
+  "final_loss": 4.264938831329346,
+  "best_loss": 4.264938831329346,
+  "exp_id": "b3d_triplet_smoke_test",
+  "mode": "triplet",
+  "params": 45931
+}
