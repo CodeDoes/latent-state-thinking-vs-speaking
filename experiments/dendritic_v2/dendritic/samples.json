@@ -1,0 +1,14 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.0,
+    "best_acc": 0.0,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 7 to D\nMultiply D by 2\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "464416416646444646666664646604464466464644464464666466646466444661446664466664446464666644664666466464464664466466644666664464446464646664466646646466464666466664664466666644666644664466646446666646664640444666464644666666466664646666666666444646664644466466466666446444646464666444466644166644666646",
+    "sample_answers": [
+      "66",
+      "36"
+    ]
+  }
+]

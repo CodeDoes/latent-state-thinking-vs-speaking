@@ -1,0 +1,122 @@
+[
+  {
+    "step": 100,
+    "accuracy": 0.03125,
+    "best_acc": 0.0625,
+    "loss": 2.9933834075927734,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 6 to D\nMultiply D by 2\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 5\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "64",
+      "20"
+    ]
+  },
+  {
+    "step": 200,
+    "accuracy": 0.015625,
+    "best_acc": 0.0625,
+    "loss": 2.341590404510498,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 14 to D\nMultiply D by 3\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "120",
+      "36"
+    ]
+  },
+  {
+    "step": 300,
+    "accuracy": 0.015625,
+    "best_acc": 0.0625,
+    "loss": 2.333268404006958,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 8 to D\nMultiply D by 2\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 4\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "68",
+      "16"
+    ]
+  },
+  {
+    "step": 400,
+    "accuracy": 0.015625,
+    "best_acc": 0.0625,
+    "loss": 2.2066166400909424,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 2 to D\nMultiply D by 4\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 4\nMultiply Y by 4\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "111111111111101111111101111011111101111111111111111111111011111111011111111111111111011111111111101111111111011011101111010111111111110111111110111110101111111211111111111110111011011111111110111101101111111101111111111121111101011111112111101111111111111101111101011110111111011111111111111111011111",
+    "sample_answers": [
+      "112",
+      "24"
+    ]
+  },
+  {
+    "step": 500,
+    "accuracy": 0.03125,
+    "best_acc": 0.0625,
+    "loss": 2.153312921524048,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 14 to D\nMultiply D by 2\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 3\nMultiply Y by 5\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "110111111121100111011101111010110101021110011011121110121011110121011211210110101111022201111121000001112011011012100102010110101201110221010010011021010121111121000011111210000001102121011101001110100112110110010111211112120210101211111212000011101010111100111020101101012011102201011211211110101121",
+    "sample_answers": [
+      "80",
+      "40"
+    ]
+  },
+  {
+    "step": 600,
+    "accuracy": 0.0,
+    "best_acc": 0.0625,
+    "loss": 2.180846691131592,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 19 to D\nMultiply D by 3\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 5\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "110111111121100111011101111011111001121110011010111111111011100111211111116111001111011200111111600001111211011011006111010111001101100111010011011011012101111121602001111116002001101111611111011110100111111110111111211112110210121011111216010011111011111110111110101110011011001121111111111116101111",
+    "sample_answers": [
+      "135",
+      "60"
+    ]
+  },
+  {
+    "step": 700,
+    "accuracy": 0.03125,
+    "best_acc": 0.0625,
+    "loss": 2.327371120452881,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 1 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 2\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "110111111101100111011100111011111001111110011010111111111011100111011101111111001111011100111111100001111011011011000111010111001101100111011110111110011011111211010011111110000011011111111110111101001111111101111100111121101100110111111110000111010111111101111101011100110110011001111011111111011111",
+    "sample_answers": [
+      "135",
+      "8"
+    ]
+  },
+  {
+    "step": 800,
+    "accuracy": 0.0,
+    "best_acc": 0.0625,
+    "loss": 2.2854156494140625,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 3 to D\nMultiply D by 5\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 5\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "110111211121100121011100121011111001111110012010121112111211100121011111112111001212010001111121000021111211011012011122012111001201100101011120112010111121211012000111112100000011011112111010111101001101111101011101121101200101111212110120010121111111111201112241111100120110010011111111211101011111",
+    "sample_answers": [
+      "145",
+      "12"
+    ]
+  },
+  {
+    "step": 900,
+    "accuracy": 0.0,
+    "best_acc": 0.0625,
+    "loss": 2.122249126434326,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 11 to D\nMultiply D by 2\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 3\nMultiply Y by 4\nthe earth seem hard across the field.\n\nQuestions:\n  What is",
+    "sample_prediction": "210121212221200122010100122022112001021120012010121212121211200122011211212112001212020000112121000020112221012012002120010112001202100202012012012001022102121201000001121210000001202121211122001120100112112210202010012120120010221021212012000012101012211120111200101120012021002001211211221110201120",
+    "sample_answers": [
+      "74",
+      "32"
+    ]
+  },
+  {
+    "step": 1000,
+    "accuracy": 0.015625,
+    "best_acc": 0.0625,
+    "loss": 2.2353909015655518,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\n\nLet D = 26\nfish might be loud across the field.\nAdd 4 to D\nMultiply D by 3\n\nLet Y = 24\nmountains are short before sunset.\nDivide Y by 2\nMultiply Y by 3\nthe earth seem hard across the field.\n\nQuestions:\n  What is ",
+    "sample_prediction": "210111211121200121012100121010111001121110012010121112111211100121011161112211001212010000111121000020112211011012002120010111001202100101011120110010121021211212000011112100000211011112611250011101001121122102022100121201000101210212112120000121010112111201112001011100120210010012111611211101011101",
+    "sample_answers": [
+      "90",
+      "36"
+    ]
+  }
+]

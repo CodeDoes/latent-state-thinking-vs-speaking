@@ -1,0 +1,67 @@
+[
+  {
+    "step": 1,
+    "accuracy": 1.0,
+    "best_acc": 1.0,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "<PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD>",
+    "sample_answers": [
+      "48",
+      "16",
+      "113"
+    ]
+  },
+  {
+    "step": 50,
+    "accuracy": 1.0,
+    "best_acc": 1.0,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "<PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD>",
+    "sample_answers": [
+      "44",
+      "7",
+      "343"
+    ]
+  },
+  {
+    "step": 100,
+    "accuracy": 1.0,
+    "best_acc": 1.0,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "<PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD>",
+    "sample_answers": [
+      "69",
+      "2",
+      "343"
+    ]
+  },
+  {
+    "step": 150,
+    "accuracy": 1.0,
+    "best_acc": 1.0,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "<PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD>",
+    "sample_answers": [
+      "92",
+      "83",
+      "275"
+    ]
+  },
+  {
+    "step": 200,
+    "accuracy": 1.0,
+    "best_acc": 1.0,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "<PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD><PAD>",
+    "sample_answers": [
+      "99",
+      "116",
+      "42"
+    ]
+  }
+]

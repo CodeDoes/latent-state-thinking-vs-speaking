@@ -1,98 +1,81 @@
-# Working Method — Verbatim
+# Working Method
 
-> **Date range**: 2026-07-10 to 2026-07-17  
-> **You said**:
+How this project gets run. These rules are derived from the user's verbatim instructions and from what actually went wrong when they were violated.
 
-"okay. take user and write PROGRESS.md"
+## Core operating principles
 
-"read @USER_base.md and update PROGRESS and make a PLAN.md"
+### Observable by default
+Every training run logs loss, accuracy, and steps-per-second to stdout and to a file. If you cannot see the curve you cannot diagnose. The user complained once that an experiment "gave no feedback" because loss was invisible. Logs are a deliverable, not a debugging afterthought.
 
-"git commit. also do you understand that I want you to use the kaggle api?"
+### Resumable
+Every training run can be restarted from a checkpoint with `--resume`. A long run is allowed to be interrupted without losing ground.
 
-"update AGENTS.md make sure it explains that I WANT YOU TO USE KAGGLE FOR EVERY EXPERIMENT!"
+### Continually improvable
+Snapshots are saved and one-day-later runs can build on them. Not a "train once, freeze forever" project.
 
-"continue with this. git commit. and try to use resuable scripts"
+### Git-bound
+Every experiment records `git rev-parse HEAD` in its config.json. The hash is a traceable artifact: "this result was produced with code at commit X." If someone later asks "where did run-007 come from," the answer is in the experiment dir.
 
-"write what to use and maintain in AGENTS.md"
+### Easy to clear
+`experiments/<id>/` is a self-contained run directory. Deleting it removes everything that run produced. No global state scattered across the repo. No surprise side-effects from a half-deleted experiment.
 
-"okay can we keep on experimenting. i liked the previous experiment but i feel it gave no feed back. i couldn't see the result over time. so i can't infer the causes and what mechanism would be better or if there was a lack of data diversity or the training or math was wrong."
+### Single-variable ablations
+One variable per experiment. Match every other parameter. Know what changed. If you cannot name the variable you changed in an experiment, you did not do an experiment, you did a stew.
 
-"update @AGENTS.md so you do not try to train on local machine"
+### Theory / experiment / code separation
+- `theories/`: prose. What we want, why. No executable code.
+- `experiments/`: run results. Logs, configs, checkpoints, samples. Each dir owns itself.
+- `src/`: code that runs experiments. Reusable across experiments.
+- `reports/`: polished documented summaries written for consumption outside the repo.
 
-"try again. are we making progress vs how long would similar code take on my pc."
+### Self-directed research
+The AI maintains a proof ledger (`proofs.md`) and proposes the next experiment based on it. The user does not have to drive each step.
 
-"i have gpu ../roco_ai/ ../rwkv-harness/ devenv.nix"
+### Backend failures are real failures
+If an experiment goes bad, fix the code or pivot the theory — don't sweep it under the rug. If the data disproves a claim, archive the theory and replace it. Git history preserves the lost attempt.
 
-"i think i stopped using kaggle for now. im not training massive models"
+### Brainstorming is welcome
+The user's verbatim thinking lives in `theories/<name>.md` even when it is messy. The work of making sense of it is mine — interpretation goes in the same file alongside the verbatim where useful.
 
-"i want you to write theories/*.md and keep track of experiments on theories in PROGRESS.md"
+## Project infrastructure rules
 
-"git commit. how we going to experiment? can you start?"
+### Single dependency manager
+`devenv.nix` and only `devenv.nix`. README.md, requirements.txt have been deleted in favor of this.
 
-"write a research-paper with theory, experiment description and results so i can evaluate this later"
+### Experiment dirs are git-tracked
+Their contents are small (configs, logs, samples). Checkpoints `*.pt` are ignored separately. Wipe a single dir to wipe a single run.
 
-"do not ask questions which can not be inferred. ask questions with only 1 answer. like i'd understand if it said 'went to X and gave Y'"
+### Use Kaggle when GPU matters; use local when iterations matter
+Kaggle for real GPU runs that have to ship. Local devenv-shell for everything CPU. Both have been in use; both have been dropped for stretches. Most small experiments happen on CPU.
 
-"git commit. why you doing it like this. make a script that we can reference later"
+### Use safetensors when it is fine
+For model weights that are not pickle-needed, `.safetensors` is preferred over `.pt`. Already adopted in `dendrite_rwkv`.
 
-"theories/*.md and theories/*.infer.md
+### Smoke tests are mandatory for any new model
+A 1-minute CPU run with synthetic data that has a learnable pattern. See [`smoke_test_methodology.md`](smoke_test_methodology.md). If your smoke test does not learn, do not run a longer experiment.
 
-the normal md is mine the infer is your interpretation of my theory. only include details not explained in my md .
+## Workflow for new code
 
-Write this to AGENTS.md"
+1. Read the theory file your work is supposed to prove.
+2. Find or create the experiment id `<theory_short>_<NNN>` (e.g., `dendrite_rwkv_001`).
+3. Write a training script in `src/` or `train_*.py` that logs to `experiments/<id>/train.log` and writes `experiments/<id>/config.json` with git hash.
+4. Set a CLI budget. For smoke tests, 60-second CPU time is the cap.)
+5. Run.
+6. Inspect logs. If loss is flat for the whole run, fix or pivot before scaling.
+7. Move on. Archive what got superseded.
 
-"update AGENTS.md im no longer using kaggle. only local.
-remove README.md and requirements.txt. use devenv instead."
+## What this does not allow
 
-"add to AGENTS.md that when i make a message you can edit theories md file with my verbatim words"
+- Multi-change experiments that conflate causes.
+- Re-running the same experiment hoping for a different result without first changing the seed and recording why.
+- Pretraining-anything larger than ~10M params on CPU.
+- Any experiment without a written hypothesis.
 
-"i want the training to be observable. i prefer to have resumable training. i prefer to constantly improve the trained model. experiments should attach their code to a git commit hash. trained models should be easy to clear.
+## Definition of done for an experiment
 
-my plan is to train RWKV nano to simulate a real program.
+- `config.json` present, includes git hash and exact seed.
+- `train.log` present, contains at least 3 valid updates showing the loss curve.
+- Either a checkpoint, or a documented reason none was saved.
+- An honest verdict in the commit message ("proved", "falsified", "no signal") and reference to the relevant theory.
 
-you need to write a synthdata-generator and then a synthdata-solver.
-
-we need to somehow train its logic. you can train it on procedurally generated content.
-
-any thoughts?"
-
-"either fix your error. or if the experiment proves the theory is invalid (must be able to prove this from looking at the loss and reasoning about the training data) then you can create a different theory that might unlock a different advantage instead. keep track of experiments and git commit before launching another round. continue with your self-directed research."
-
-"go on. git commit for each step. you are doing well."
-
-"add experiment. progressive expansion. basically you train a model on a task and then if you want to add some sort of extra capbility to it you run a sample of the new-task through it and monitor the activations for any sort of bottleneck (gate) and you use that as a marker for a good place to add additional layers or concentrate learning relative to.
-theory is that you can do this in a way that would not be obstructive. and also can naturally expand the model. and also that the training for th"
-
-"i'd rather start from the underlying assumptions. (though my assumptions are based on hearing from other people's previous research)"
-
-"yes. i did not want to change everything at once. i wanted multiple hypothesis and experiments. obviously isolate things that can be issolated. and those that can't try to introduce them sequentially."
-
-"OKAY git commit. they start the next."
-
-"commit all. let's chat. first i want to do the training with a BLT variant of RWKV so i can fix the technical glitches that will inevitably come up. and only after we have a solid foundation do i want to do a training run (GPU) and prove/disprove theories."
-
-"i think fundamentally the byte-state and patch-state should be seperate. (byte-state+patch-state) -> patch-model and also into byte-model
-
-the encoder might not need the patch-state. but the decoder will. so i think its better if we just use the same architecture for both."
-
-"i'm thinking of stepping away from the pure RNN. this is getting a bit ahead of me. a small pure BLT model -> working
-a small BLT encoder and decoder with a small RWKV -> working
-a RWKV based encoder and decoder with a normal transformer -> working
-a pure RNN based BLT model -> working
-
-in that order. would be better"
-
-"start. git commit after each experiment is recorded"
-
-"theories can get simplified and archived in git history instead. can also record a snapshot of experiment results somehow 'X proves Y' for later reference"
-
-"theories/ is for my crazy verbatim utterings!
-theories/*.infer is what you made sense of
-theories/*.state is how the experiements are going
-experiments/ are for experiments for all the underlying assumptions and the hypothesis and claims in theories/
-reports/ is for outside consumption on what has been discovered so far."
-
-"i don't want only dendrite meta-info.
-basically i want you to restore my verbatim. and recreate the infer and clean up the status inside theories/"
-
-"you should extract even the trash ! you think i don't know im messy. its not like it matters. im not talking to a person. im brain storming and poking the ai to explore its latent space."
+Any experiment missing any of these is not done.

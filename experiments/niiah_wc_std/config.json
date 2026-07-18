@@ -1,0 +1,19 @@
+{
+  "model": "standard",
+  "exp_id": "niiah_wc_std",
+  "steps": 100,
+  "batch_size": 32,
+  "max_len": 256,
+  "lr": 0.0003,
+  "dim": 128,
+  "layers": 3,
+  "seed": 42,
+  "device": "cpu",
+  "num_vars": 2,
+  "min_transforms": 1,
+  "max_transforms": 2,
+  "noise_min": 0,
+  "noise_max": 1,
+  "git_hash": "cd37150cdd07e04f0497f42aad5c631377119ea4",
+  "vocab_size": 74
+}

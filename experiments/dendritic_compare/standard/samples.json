@@ -1,0 +1,28 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444",
+    "sample_answers": [
+      "46",
+      "28",
+      "511"
+    ]
+  },
+  {
+    "step": 300,
+    "accuracy": 0.9479166666666666,
+    "best_acc": 0.9479166666666666,
+    "loss": 2.3916118144989014,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "9",
+      "118",
+      "365"
+    ]
+  }
+]

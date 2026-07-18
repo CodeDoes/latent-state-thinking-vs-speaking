@@ -1,32 +1,69 @@
-# Dendrite Growth — Verbatim
+# Dendrite Growth
 
-> **Source**: Verbatim from user across sessions (the "growing RWKV" subset, not the LoRA one).  
-> **Date range**: 2026-07-15 to 2026-07-17  
-> **You said**:  
-  
-"its an RWKV that grows"
+A second attempt at the dendrite idea, after the LoRA version didn't quite match what was wanted. The intent here is an RWKV core that stays exactly as it is while new modules attach to it — like adding limbs to a tree trunk.
 
-"no i wanted extensions to the network. imagine in the ideal. growing from a core and adding parts as you go. but keeping RWKV as is."
+## What the user actually said
 
-"the word of god said to use state instead for @reports/dendritron.md"
+*"its an RWKV that grows"* — *"no i wanted extensions to the network. imagine in the ideal. growing from a core and adding parts as you go. but keeping RWKV as is."*
 
-"also the word of angle said this reminded them of this paper https://arxiv.org/html/2606.14243v1"
+Plus the additional context from later sessions:
 
+- Dendrites can carry their own state specifically for the dendrite's purpose.
+- The state can drive whether the dendrite routes or not.
+- A dendrite can be stochastically picked by inserting NO-OPS and observing which one steers toward the target state.
+- The trunk's intelligence is assumed maxed-out across all relevant sectors — adding more knowledge would cause entanglement in a single model.
+- A larger model is assumed to solve the entanglement (control).
+- The dendrite allows expansion without retraining unrelated parts.
+- The gating logic can be optional; it could be a pre-trained gate that watches activations on the target weights.
+- "Gate neurons" are singular neurons in a region that other neurons might pass through, switching the whole model into a different mode.
+- It is possible to track activations for specific topics across an RWKV model.
 
-=== ADDITIONS (remove after reading and updating docs)
+## What this implies mechanically
 
-when adding dendrite expansion. you can add dedicated state specifically for this. 
+- The trunk (RWKV layers 0..L-1) is frozen.
+- Each branch is its own module with its own weights and possibly its own state buffer.
+- Routing is **optional** for the simplest case — a branch just processes trunk output. Routing is mandatory if many branches would otherwise interfere.
+- State-based routing: the trunk's WKV state can be tapped to decide which branch runs.
+- No-OPS routing: at inference, drop in NO-OP branches and keep the one that moves the state in the desired direction. This works because branches are *stochastic in their effect on state*.
+- Activation tracking is a research tool: run a probe through trunk, find a region where some neurons spike on target-topic inputs — that's where the gating neuron lives.
 
-or you can use the state to determine whether to route to the dendrite or not. 
+## Predicted structure
 
-Theory: the dendrite can be stochastically determined. you can randomly add NO-OPS and see which dendrites is more likely to cause the desired state.
+```
+Trunk (frozen RWKV) ──► hidden h_l ──┬──► branch-1 trainable ──► logits
+                                      ├──► branch-2 trainable
+                                      ├──► NO-OP branch-A      (probe only)
+                                      └──► NO-OP branch-B      (probe only)
+```
 
-Assumption: The model's intelligence capacity is maxed out in all relavent sectors and adding more knowledge would cause entanglement. 
+On inference:
+1. Probe by running all branches including NO-OPs.
+2. Pick the one whose output moves trunk-state closest to the desired region.
+3. Take that branch's output as the next-step prediction.
 
-Assumption: This can be solved by a larger model.
+On training:
+1. Trunk frozen forever.
+2. Each branch trained in isolation on its task.
+3. Routing (when present) trained on probe-derived gates.
 
-Assumption: Dendrite allows expansion without requiring retraining of unrelated parts, and at most requires gating logic to be trained (optionally could also be part of the dendrite and could be trained beforehand from observing activations on the target weights)
+## What's the smallest proof
 
-Unrelated Assumption: Gate neurons are singular neurons in a region that other neurons might pass through that cause a different mode of behaviour for the greater model.
+A trivial case: trunk-RWKV with one branch trained to do a single task the trunk was not trained to do. The branch is a cross-attention block + head. Show:
+- Trunk logits on probe unchanged (within ε) after branch training.
+- Branch outputs the right answer on its task.
+- Adding a NO-OP branch does not change trunk behavior.
+- Adding a second functional branch does not change the first branch's accuracy.
 
-Assumption: you can track activations for certain topics accross a RWKV model.
+That's the G1 claim from the previously-deleted infer file, packaged here as the only hypothesis worth proving.
+
+## Not this
+
+Not LoRA. A LoRA adds rank-r matrices to existing projections — that mutates trunk weights in disguised form. Not state-only — branch state is auxiliary; trunk WKV state stays untouched. Not pure MoE on Transformer — the trunk is RWKV.
+
+## Theory status
+
+- **G1**: Frozen trunk + branch, trunk unchanged, branch task learned — not proven, implementation pending.
+- **G1a**: Trunk logits within ε after branch train — open.
+- **G1b**: Two branches independent — open.
+- **G1c**: Activation tracking finds gating neurons — open.
+- **G1d**: NO-OP probing picks the right branch without learned router — open.

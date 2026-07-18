@@ -1,0 +1,67 @@
+[
+  {
+    "step": 1,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 4.304065227508545,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "444444444444444444484844444444444444444444444484444444444444444444444844444444444444444444444844444444484444444444444444444444444444444444444444444444444444444448444444444844448444844444444844444448444444444444444444444444448444484444844444444444444444444444444444844444444444444444444444444444444444",
+    "sample_answers": [
+      "37",
+      "35",
+      "58"
+    ]
+  },
+  {
+    "step": 100,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 3.7445449829101562,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+    "sample_answers": [
+      "53",
+      "19",
+      "105"
+    ]
+  },
+  {
+    "step": 200,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+    "sample_answers": [
+      "31",
+      "47",
+      "72"
+    ]
+  },
+  {
+    "step": 300,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "122222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+    "sample_answers": [
+      "87",
+      "48",
+      "72"
+    ]
+  },
+  {
+    "step": 400,
+    "accuracy": 0.9375,
+    "best_acc": 0.9375,
+    "loss": 0.0,
+    "sample_input": "Task: Track the variable values through the text and answer the questions at the end.\n\nmountains could be small near the shore.\nthe ocean stay small after the rain.\nmountains will be sweet in the distance.\n\nLet E = 53\nmountains might be cold on a clear day.\nmountains seem short.\nstars seem warm afte",
+    "sample_prediction": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "sample_answers": [
+      "35",
+      "88",
+      "214"
+    ]
+  }
+]

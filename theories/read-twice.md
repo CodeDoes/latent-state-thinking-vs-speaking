@@ -1,72 +1,51 @@
 # read-twice
 
-## What you said
+A cheaper alternative to progressive expansion when capacity is pressed: instead of inserting new layers, run the existing recurrence for additional forward passes. The state accumulates further. No new weights. No new training.
 
-> i think RNN's can do "read twice" instead
+## What the user said
 
-Instead of inserting new layers when you detect a capacity bottleneck, run the
-same input through additional recurrent forward passes using the existing
-weights. The recurrent state accumulates across passes — no new parameters.
+*"i think RNN's can do 'read twice' instead."*
 
-This is "thinking longer" instead of "thinking wider."
+## Hypothesis
 
-## Why this fits the project frame
+A model given 2 recurrent passes learns harder tasks faster at matched compute than a model that does 1 pass + a new layer.
 
-It inherits directly from the think-once vs re-encode frame you already proved:
+- Pro: no new parameters, no risk of disturbing existing capabilities, no new training.
+- Con: extra compute cost.
 
-- **exp001** proved that a single think pass beats per-query re-encoding for
-  WHERE-style long-horizon recall. The mechanism was *amortised thinking*:
-  the model builds a state once and queries it cheaply.
-- **read-twice** extends this: when amortised thinking is insufficient for a
-  particular input, run a second think pass before querying. The cost is still
-  amortised (only when needed) but the representational capacity increases
-  without new weights.
-- **progressive-expansion** adds new layers. Read-twice adds new passes.
-  Both are surgical; one changes topology, the other changes compute depth.
+## Mechanism sketch
 
-## What the math already predicts
+At inference time, instead of `output = model(input)`, run:
+```
+state = state_0
+output_1, state_1 = model(input, state_0)
+output_2, state_2 = model(input, state_1)  # same input, second pass
+final = output_2  # or f(output_1, output_2)
+```
 
-The bottleneck metrics you already have (saturation, EDD shift) are measuring
-*how hard the current representation is working*. If you correlate those scores
-with *how many extra passes an input needs before the downstream task succeeds*,
-you get a direct read-out of "required thinking depth" from the activation
-signature alone.
+The second pass sees its own previous output through the state but not through new weights. Pure recurrence deepens the same function.
 
-## The key hypothesis
+## Relationship to other work in the project
 
-> A model given 2 recurrent passes learns harder tasks faster (at matched
-> compute) than one that does 1 pass + a new layer.
-
-Or equivalently:
-
-> The capacity-pressure signals measured by progressive-expansion metrics
-> predict the number of additional passes needed to recover accuracy on
-> hard inputs.
-
-## What this changes in the proof chain
-
-| Progressive expansion step | Read-twice equivalent |
-|---------------------------|----------------------|
-| Detect bottleneck via activations | Same — metrics still needed |
-| Insert new layer at detected junction | Run N additional recurrent passes |
-| Train new layer on hard task | No new training needed for existing weights |
-| Risk: disturbs existing capabilities | No risk — identical weights, same input |
+| Work | Relationship |
+|---|---|
+| `progressive-expansion.md` | Sister theory. Progressive adds layers; read-twice adds passes. Same inverse goal (surgical surgery on capacity). |
+| `adaptive-exit-entropy.md` | Reads as well: instead of exiting *early* on confidence, run *longer* on insufficient capacity. Symmetric to current "exit early when confident" logic. |
+| `dendrite_growth.md` | Pass-depth ammortizes over a *single trunk*; dendrite-growth has many trunks + shared base. Different lever. |
+| `exp001` (proven) | Already showed amortised thinking wins when the same state can be queried cheaply. Read-twice extends to the case where one pass is not enough. |
 
 ## Open questions
 
-1. **Monotonicity**: does additional pass depth always help, or does the
-   model start *unlearning* the easy task after too many passes?
-2. **Per-example vs uniform**: should every input get the same number of
-   passes, or should the model learn *when* to stop (early-exit)?
-3. **GRU vs RWKV**: does read-twice work equally well for both recurrence
-   types, or does one architecture benefit more?
+1. Monotonicity. Does more passes always help, or does it start unlearning the easy task after too many? Need a curve.
+2. Per-example gating. Should every input get the same passes, or should the model learn when to stop?
+3. GRU vs RWKV. Does it work for both recurrence types?
+4. Cost framing. At matched *FLOPs*, pass-depth vs new-layer creates different wallclock profiles. The right comparison is "FLOPs-equivalent."
 
-## Minimal test skeleton
+## Minimal test
 
 1. Train a small GRU on task A (single pass) until converged.
-2. Run it on task B (harder, same domain) with 1, 2, 3, 4 recurrent passes.
-3. Record accuracy vs pass depth.
-4. Compare to: same model with an additional Linear layer inserted at the
-   detected bottleneck position (from progressive expansion metrics).
-5. Single outcome: pass-depth-to-accuracy curve vs layer-insertion accuracy.
-   Winner = whichever learns the hard task faster at matched compute.
+2. Run on task B (harder — same domain, but bigger) with 1, 2, 3, 4 passes. Plot accuracy vs pass-depth.
+3. Same compute budget. Train a model with an extra linear layer inserted at the bottleneck (per progressive-expansion) on task B. Compare accuracy.
+4. Single question: which learns faster at matched compute?
+
+Status: not yet run. Implementation could land in a smoke test in ~30 minutes once a bottleneck-aware layer-insertion variant exists to compare against.
