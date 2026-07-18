@@ -18,5 +18,5 @@ Latest first. Older entries below; nothing is deleted, only superseded.
 - `adaptive_loop_002` (`5d9a04c`): scale test ~1.2M params (dim=128, 3L each). Loss 5.80→0.33 in 1k steps. Encoder loops adapt 1→2, decoder stays 1. Coordination survives scaling. Reinforces B5.
 
 ## Partial
-- `prog_exp_001` (`5161ad7`): A1 (capacity pressure is observable) partially proven — `effective_dimensionality` shows dynamic range; saturation/range metrics hit ceiling on this easy/hard gap. See [`progressive-expansion.status.md`](progressive-expansion.status.md).
+- `prog_exp_001` (`5161ad7`): A1 (capacity pressure is observable) partially proven — `effective_dimensionality` shows dynamic range; saturation/range metrics hit ceiling on this easy/hard gap. See [`progressive-expansion.md`](memory/progressive-expansion.md).
 

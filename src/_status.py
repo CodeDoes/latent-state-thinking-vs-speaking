@@ -65,26 +65,49 @@ def git_dirty():
 # ── Theories ────────────────────────────────────────────────────────────
 
 THEORY_BLACKLIST = {"status.md", "proofs.md", "dump.rwkv-rosa-dendrite.txt"}
+THEORY_SUBDIRS = (
+    "architecture", "memory", "adaptive", "spatial",
+    "core", "method", "application", "analysis",
+)
 
 
 def discover_theories():
-    theories = []
-    for f in list_files("theories", ".md"):
-        if f.name in THEORY_BLACKLIST:
-            continue
-        if f.name.startswith("status"):
-            continue
-        text = (ROOT / "theories" / f.name).read_text(errors="replace")
-        # First non-empty, non-# line gives a quick "blurb"
-        blurb = ""
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+    """Discover theory files. Top-level files first, then per-subdir."""
+    out = []
+    # Top-level theories (ultimate, proofs, status, etc.)
+    p = ROOT / "theories"
+    if p.exists():
+        for f in sorted(p.glob("*.md")):
+            if f.name in THEORY_BLACKLIST:
                 continue
-            blurb = stripped[:120]
-            break
-        theories.append((f.name, blurb, f))
-    return theories
+            if f.name.startswith("status") or f.name.startswith("."):
+                continue
+            blurb = _first_blurb(f)
+            out.append((f.name, blurb, f))
+    # Subdirectories
+    for sub in THEORY_SUBDIRS:
+        sp = ROOT / "theories" / sub
+        if not sp.exists():
+            continue
+        out.append(("", f"── {sub}/ ──", None))
+        for f in sorted(sp.glob("*.md")):
+            blurb = _first_blurb(f)
+            out.append((f.name, blurb, f))
+    return out
+
+
+def _first_blurb(path):
+    """First non-empty, non-# line of a file, truncated."""
+    try:
+        text = path.read_text(errors="replace")
+    except Exception:
+        return ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped[:120]
+    return ""
 
 
 def print_theories():
@@ -105,10 +128,13 @@ def exp_status(exp_dir: Path):
     cfg = exp_dir / "config.json"
     log = exp_dir / "train.log"
     ckpt = exp_dir / "checkpoint.pt"
+    rel = exp_dir / "relationships.json"
     final_loss = None
     final_acc = None
     steps = None
     git_hash_at_run = None
+    tag = None
+    supports = []
     notes = ""
 
     if cfg.exists():
@@ -116,8 +142,16 @@ def exp_status(exp_dir: Path):
             data = json.loads(cfg.read_text())
             steps = data.get("steps") or data.get("total_steps")
             git_hash_at_run = data.get("git_hash") or data.get("commit")
+            tag = data.get("tag")
         except Exception:
             notes += "[bad-config]"
+
+    if rel.exists():
+        try:
+            data = json.loads(rel.read_text())
+            supports = data.get("supports", [])
+        except Exception:
+            pass
 
     if log.exists():
         log_text = log.read_text(errors="replace")
@@ -158,6 +192,8 @@ def exp_status(exp_dir: Path):
         ", ".join(out) or "empty",
         verdict,
         git_hash_at_run or "no-git-hash",
+        tag or "no-tag",
+        supports,
         notes.strip(),
     )
 
@@ -188,11 +224,14 @@ def print_experiments():
     if not exps:
         print("  (none)")
     for e in exps:
-        flags, verdict, git_at, notes = exp_status(e)
+        flags, verdict, git_at, tag, supports, notes = exp_status(e)
         prefix = "·"
         if notes:
             prefix = "!"
-        print(f"  {prefix} {e.name:32s} [{flags:11s}] {verdict:32s} (run@{git_at}) {notes}")
+        print(f"  {prefix} {e.name:32s} [{flags:11s}] {verdict:32s} "
+              f"(run@{git_at}) tag={tag} {notes}")
+        for s in supports:
+            print(f"    └─ supports {s}")
 
 
 # ── Code ────────────────────────────────────────────────────────────────
