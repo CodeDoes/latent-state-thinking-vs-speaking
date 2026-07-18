@@ -1,0 +1,7 @@
+{
+  "exp_id": "ent_smoke_0.01",
+  "entropy_weight": 0.01,
+  "steps": 100,
+  "dim": 64,
+  "hypothesis": "entropy weight controls loop collapse"
+}
