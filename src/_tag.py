@@ -191,14 +191,15 @@ def update_config(exp_id, **updates):
     print(f"updated {cfg_path}")
 
 
-def git_tag(name, target="HEAD", msg=None, force=False):
-    cmd = ["git", "tag"]
+def git_tag(name, target="HEAD", msg=None, force=False, cwd=None):
+    cwd = cwd if cwd is not None else ROOT
+    cmd = ["git", "-C", str(cwd), "tag"]
     if force:
         cmd.append("-f")
     if msg:
         cmd += ["-m", msg]
     cmd += [name, target]
-    subprocess.run(cmd, cwd=ROOT, check=True)
+    subprocess.run(cmd, check=True)
 
 
 def git_show_tag(name):
@@ -407,8 +408,7 @@ def cmd_link(args):
 
 def _require_clean_tree(repo_root):
     out = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=repo_root,
+        ["git", "-C", str(repo_root), "status", "--porcelain"],
         capture_output=True,
         text=True,
         check=True,
@@ -424,8 +424,7 @@ def _require_clean_tree(repo_root):
 
 def _current_commit(repo_root):
     out = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_root,
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         check=True,
@@ -436,27 +435,28 @@ def _current_commit(repo_root):
 def _stage_experiment(repo_root, exp_id, include_edits=False):
     """Stage `experiments/<exp_id>/` plus optional tracked edits."""
     subprocess.run(
-        ["git", "add", "--force", f"experiments/{exp_id}"],
-        cwd=repo_root,
+        ["git", "-C", str(repo_root), "add", "--force", f"experiments/{exp_id}"],
         check=True,
     )
     if include_edits:
-        # also pick up edits to any tracked file the run produced
         subprocess.run(
-            ["git", "add", "-u"],
-            cwd=repo_root,
+            ["git", "-C", str(repo_root), "add", "-u"],
             check=True,
         )
 
 
-def _make_exp_dir(exp_id):
-    d = EXPERIMENTS_DIR / exp_id
+def _make_exp_dir(exp_root, exp_id):
+    d = exp_root / exp_id
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _write_config(exp_id, topic, n, note, user_config_path):
-    d = _make_exp_dir(exp_id)
+def _write_config(exp_root=None, exp_id=None, topic=None, n=None, note=None, user_config_path=None):
+    if exp_root is None:
+        exp_root = EXPERIMENTS_DIR
+    if exp_id is None:
+        sys.exit("_write_config requires exp_id")
+    d = _make_exp_dir(exp_root, exp_id)
     cfg_path = d / "config.json"
     cfg = {}
     if cfg_path.exists():
@@ -497,8 +497,9 @@ def cmd_run(args):
       5. Stage just experiments/<id>/ (and tracked edits if asked), commit,
          mint a -post lightweight tag at the new commit.
     """
-    repo_root = ROOT
-    if not args.pre_only:
+    repo_root = Path(args.repo_root) if hasattr(args, 'repo_root') and args.repo_root else Path.cwd()
+    exp_root = repo_root / "experiments"
+    if not args.pre_only and not args.post_only:
         _require_clean_tree(repo_root)
 
     exp_id = args.exp_id
@@ -510,8 +511,7 @@ def cmd_run(args):
     pre_tag_existing = None
     if args.post_only:
         out = subprocess.run(
-            ["git", "tag", "--sort=v:refname", "-l", f"{TAG_PREFIX_EXP}{topic}/*-pre"],
-            cwd=repo_root,
+            ["git", "-C", str(repo_root), "tag", "--sort=v:refname", "-l", f"{TAG_PREFIX_EXP}{topic}/*-pre"],
             capture_output=True,
             text=True,
             check=True,
@@ -535,15 +535,8 @@ def cmd_run(args):
     post_tag = f"{TAG_PREFIX_EXP}{topic}/{n:03d}-post"
 
     # Always (re)write config.json with the upcoming tag, even on --post-only.
-    cfg_path_before = None
     if not args.dry_run:
-        cfg_path_before = _write_config(exp_id, topic, n, note, args.config)
-        # include config.json in the pre-tag repo state too
-        if not args.pre_only:
-            # we re-stage after writing, but if we're going to commit later
-            # this file must exist before the run (so its state can be part
-            # of the -pre snapshot's *next* commit recipients).
-            pass
+        _write_config(exp_root, exp_id, topic, n, note, args.config)
 
     print(f"# Experiment: experiments/{exp_id}/")
     print(f"#   pre  tag: {pre_tag}")
@@ -559,7 +552,7 @@ def cmd_run(args):
 
     # 3) -pre tag at HEAD
     if not args.post_only:
-        git_tag(pre_tag, target="HEAD", msg=f"pre-run snapshot for experiments/{exp_id}")
+        git_tag(pre_tag, target="HEAD", msg=f"pre-run snapshot for experiments/{exp_id}", cwd=repo_root)
         print(f"# tagged {pre_tag} → HEAD")
 
     if args.pre_only:
@@ -568,7 +561,7 @@ def cmd_run(args):
 
     # 4) Run the command
     if args.command:
-        log_path = EXPERIMENTS_DIR / exp_id / "train.log"
+        log_path = exp_root / exp_id / "train.log"
         print(f"# running: {' '.join(args.command)}  →  {log_path}")
         rc = _run_command(args.command, log_path)
         print(f"# exit code: {rc}")
@@ -583,8 +576,7 @@ def cmd_run(args):
     _stage_experiment(repo_root, exp_id, include_edits=args.include_edits)
 
     staged = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        cwd=repo_root,
+        ["git", "-C", str(repo_root), "diff", "--cached", "--name-only"],
         capture_output=True,
         text=True,
         check=True,
@@ -592,16 +584,16 @@ def cmd_run(args):
 
     if not staged:
         print("# (nothing staged for the post-snapshot; nothing to commit)")
-        git_tag(post_tag, target="HEAD", msg=f"post-run snapshot for experiments/{exp_id} (no diff)")
+        git_tag(post_tag, target="HEAD", msg=f"post-run snapshot for experiments/{exp_id} (no diff)", cwd=repo_root)
         print(f"# tagged {post_tag} → HEAD (no commit)")
         return
 
     msg = f"experiment {exp_id}: post-run snapshot (seq {n:03d}, topic {topic})"
     if note:
         msg += f"\n\n{note}"
-    subprocess.run(["git", "commit", "-m", msg], cwd=repo_root, check=True)
+    subprocess.run(["git", "-C", str(repo_root), "commit", "-m", msg], check=True)
     new_commit = _current_commit(repo_root)
-    git_tag(post_tag, target="HEAD", msg=f"post-run snapshot for experiments/{exp_id}")
+    git_tag(post_tag, target="HEAD", msg=f"post-run snapshot for experiments/{exp_id}", cwd=repo_root)
     print(f"# tagged {post_tag} → {new_commit[:7]}")
     # Help link command:
     print(f"# next: link to a claim:  python ./src/_tag.py link {pre_tag[:-4]} theo/<topic>/<CID>")
@@ -668,6 +660,12 @@ def main():
         help="experiment id (directory name under experiments/, e.g. byte_loop_002)",
     )
     s_run.add_argument("--topic", required=True, help="topic slug for the exp tag (e.g. byte_state_byte)")
+    s_run.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="override the repository root (default: current working directory)",
+    )
     s_run.add_argument(
         "--config",
         help="optional path to a JSON file with config.json fields; copied into experiments/<id>/config.json",
