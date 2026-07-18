@@ -503,10 +503,36 @@ def cmd_run(args):
 
     exp_id = args.exp_id
     topic = normalize_topic(args.topic)
-    n = next_exp_number(repo_root, topic)
+
+    # If --post-only is set and a matching -pre tag exists, reuse its seq;
+    # otherwise mint a fresh seq.
+    note = args.note or ""
+    pre_tag_existing = None
+    if args.post_only:
+        out = subprocess.run(
+            ["git", "tag", "--sort=v:refname", "-l", f"{TAG_PREFIX_EXP}{topic}/*-pre"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        tags = out.stdout.splitlines()
+        if tags:
+            last = tags[-1]
+            m = re.match(
+                rf"^{re.escape(TAG_PREFIX_EXP)}{re.escape(topic)}/(\d+)-pre$", last
+            )
+            if m:
+                n = int(m.group(1))
+                pre_tag_existing = last
+        if pre_tag_existing is None:
+            sys.exit(
+                f"--post-only: no existing exp/{topic}/NNN-pre tag found; nothing to anchor to"
+            )
+    else:
+        n = next_exp_number(repo_root, topic)
     pre_tag = f"{TAG_PREFIX_EXP}{topic}/{n:03d}-pre"
     post_tag = f"{TAG_PREFIX_EXP}{topic}/{n:03d}-post"
-    note = args.note or ""
 
     # Always (re)write config.json with the upcoming tag, even on --post-only.
     cfg_path_before = None
@@ -578,7 +604,7 @@ def cmd_run(args):
     git_tag(post_tag, target="HEAD", msg=f"post-run snapshot for experiments/{exp_id}")
     print(f"# tagged {post_tag} → {new_commit[:7]}")
     # Help link command:
-    print(f"# next: link to a claim:  python ./src/_tag.py link {post_tag.replace('-post','')} theo/<topic>/<CID>")
+    print(f"# next: link to a claim:  python ./src/_tag.py link {pre_tag[:-4]} theo/<topic>/<CID>")
 
 
 def _now():
