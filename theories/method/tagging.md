@@ -130,3 +130,112 @@ This is the formal "the result of run NN is recorded against claim X" event. The
 - `src/_tag.py` exists; tested end-to-end with one example run (later reverted).
 - `_status.py` shows experiment tags and "supports" lines for each tagged experiment.
 - Need to mint tags for all proofs already in `proofs.md`.
+
+---
+
+# Running an experiment with bracketed snapshots (`_tag.py run`)
+
+The `run` subcommand in `src/_tag.py` automates the bookkeeping that, before,
+was done by hand: snapshot the codebase *before* the run, then commit and
+snapshot *after*. Two lightweight tags (`-pre`, `-post`) replace what would
+otherwise be a worktree.
+
+## Why a worktree isn't used
+
+The original idea was to make a git worktree per experiment so the run
+"lives" in a separate copy of the repo. Reasons not to:
+
+- The repo is small (~370 tracked files, ~2 MB on disk). A worktree copy
+  is cheap, but the *file count grows with codebase size* and so does the
+  risk of an experiment polluting or partially committing state.
+- A worktree is a separate working directory. That means a separate Python
+  venv / `PYTHONPATH` / imports, separate shell boot, separate relative
+  paths (`./src/foo` vs `<worktree>/src/foo`). All friction for no
+  provenance benefit.
+- The whole reason a worktree helps is to make the *code as it looked at
+  run time* findable later. A **git tag** pointing at a commit does the
+  same thing in ~200 bytes.
+- The repo already ignores `.devenv/`, `__pycache__/`, and `*.pt` via
+  `.gitignore`. A worktree doesn't snapshot those regardless.
+
+So: the snapshot is two tags plus one commit. Nothing else.
+
+## What `run` does
+
+```
+python ./src/_tag.py run \
+    --id byte_loop_002 \
+    --topic byte_state_byte \
+    --note "smoke: encoder-decoder with 1L each, 117K params" \
+    --config /path/to/my_params.json \
+    --command python ./src/train_byte_rwkv.py
+```
+
+Steps, in order:
+
+1. Verify the working tree is clean (so the -pre snapshot is a real
+   recorded state, not "state plus my in-progress edits").
+2. Compute the next sequence number (`NNN`) under `exp/<topic>/`.
+3. Write `experiments/<id>/config.json` with `tag`, `tag_topic`,
+   `tag_seq`, `tag_note` fields *and* any fields merged from
+   `--config`.
+4. `git tag exp/<topic>/<NNN>-pre HEAD` — the **pre** snapshot of the
+   code as it looked right before the run.
+5. Run the command via subprocess; capture stdout+stderr into
+   `experiments/<id>/train.log`.
+6. `git add experiments/<id>/` (plus, with `--include-edits`, any
+   tracked-file edits the run produced).
+7. `git commit` and `git tag exp/<topic>/<NNN>-post <commit>` —
+   the **post** snapshot with the run's outputs in tree.
+
+After a `run` you have exactly two git tags. Their diff tells you
+exactly what the run produced. The previous "-pre" commit is unchanged.
+
+## Options
+
+| flag | meaning |
+|---|---|
+| `--id NAME` | experiment directory under `experiments/` (required) |
+| `--topic SLUG` | topic slug for the tag namespace (required) |
+| `--config FILE` | optional JSON file with extra fields merged into config.json |
+| `--note TEXT` | recorded into config.json and both tag messages |
+| `--command A B C ...` | passthrough to subprocess; everything that follows is the command |
+| `--include-edits` | commit tracked-file edits in the -post commit too (default: only `experiments/<id>/`) |
+| `--dry-run` | print the plan, do nothing |
+| `--pre-only` | mint the -pre tag and exit (e.g. you want a "starting state" record before a long interactive experimentation phase) |
+| `--post-only` | skip the -pre tag and the run; commit + tag an already-finished experiment |
+
+In `--post-only` mode the -pre tag is *not* minted. We rely on it being
+explicit that the experiment pre-state was whatever HEAD said at the
+time the experiment *finished*. Use this when you've already run code
+without the wrapper and want to bring the bookkeeping in line.
+
+## Verifying a snapshot pair
+
+```
+git diff exp/byte_state_byte/002-pre exp/byte_state_byte/002-post
+git show    exp/byte_state_byte/002-post --stat
+```
+
+That diff is the canonical answer to "what changed from start to end of
+that experiment." Reproducing it on another machine: checkout the -pre
+commit, run the captured command from `train.log`, and you should land
+on the -post commit.
+
+## Failure modes
+
+- **Dirty tree**. `run` refuses to start. Commit or stash first. This is
+  not just bookkeeping: an unsigned -pre tag of a dirty tree is not a
+  real snapshot — your `-` and `M` lines won't be in HEAD.
+- **Command exits non-zero**. The -post snapshot still happens. We want
+  failed runs preserved, not erased. The exit code prints to the
+  runner's stdout; re-read `train.log` for the captured version.
+- **No --command supplied**. We skip the run and go straight to
+  post-snapshot. Useful for "the experiment dir already exists with
+  outputs from elsewhere; please lock it in git history."
+- **Tag clash**. Two runs of the same topic with the same seq number
+  collide. `_tag.py` advances the seq from existing tags, so two
+  parallel runners can each mint `NNN+1` and then the second commit
+  produces a different commit with the same tag name. We don't
+  auto-force overwrites; if you see a duplicate, re-tag with
+  `_tag.py exp … --apply --target <commit>`.
