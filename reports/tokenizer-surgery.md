@@ -144,7 +144,14 @@ never knows bytes exist — it sees token IDs as if from the normal tokenizer.
 
 ## What Was Learned
 
-1. **The core layers encode computational strategies, not token patterns.**
+1. **The tokenizer is entirely outside the model.** The TRIE does byte→token
+   and token→byte. The model only does token→state (embed) and state→token
+   (head). A learned front-end (loopy RNN) replaces the TRIE at the same
+   position in the data flow without touching the model. See
+   [`research/rwkv_layer_roles.md`](../research/rwkv_layer_roles.md) for
+   detailed analysis of where encode/decode spaces live in real RWKV-7.
+
+2. **The core layers encode computational strategies, not token patterns.**
    Transfer is positive across every approach. The core is not token-bound.
 
 2. **The decoder is the bottleneck.** Approaches that keep the original head
