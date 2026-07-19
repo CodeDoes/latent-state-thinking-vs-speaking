@@ -12,6 +12,7 @@ For published work behind the claims, see [`research/`](../research/) — each a
 Latest first. Older entries below; nothing is deleted, only superseded.
 
 ## Proven
+- `rwkv7_surgery_001` (5156f87): layer-aware surgery with real RWKV world tokenizer (65529 vocab). Split 3-layer model as 1 encoder + 1 core + 1 decoder. Byte encoder+decoder init from world-layer weights. 500 steps byte fine-tune: surgery loss 4.75→0.01 vs scratch 5.50→0.01. Modest transfer (Δ=0.75 nats initial) — BPE tokenizer creates bigger distribution shift from bytes than char tokenizer. Reinforces T1 with world tokenizer.
 - `token_surgery_full` (f0e6434): token→byte interface surgery preserves 27× head start over from-scratch training. Pre-trained RWKV core (500 steps char-level) copied embed/head weights to byte positions, frozen core, trained only 33K interface params. At step 200: surgery loss 0.084 vs scratch 2.25. Proves T1.
 - `patch_loop_001` (HEAD): patch-level encoder→sparse decoder with trigger cost at 133K params. trigger_cost=0.1: loss 5.76→2.40, rate~0.5; cost=2.0: rate~0.67. Trigger cost modulates sparsity. Proves B7.
 - `shared_state_unrolled_feedback_001`: recurrent decoder feedback (feeding previous target embedding to decoder step i > 0) resolves the B3/B4 decoder stall and mode-collapse. Decoder loss drops rapidly to 0.035 in 500 steps, generating non-blank text.
