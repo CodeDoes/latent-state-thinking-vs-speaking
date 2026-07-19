@@ -12,6 +12,7 @@ For published work behind the claims, see [`research/`](../research/) — each a
 Latest first. Older entries below; nothing is deleted, only superseded.
 
 ## Proven
+- `token_surgery_full` (f0e6434): token→byte interface surgery preserves 27× head start over from-scratch training. Pre-trained RWKV core (500 steps char-level) copied embed/head weights to byte positions, frozen core, trained only 33K interface params. At step 200: surgery loss 0.084 vs scratch 2.25. Proves T1.
 - `patch_loop_001` (HEAD): patch-level encoder→sparse decoder with trigger cost at 133K params. trigger_cost=0.1: loss 5.76→2.40, rate~0.5; cost=2.0: rate~0.67. Trigger cost modulates sparsity. Proves B7.
 - `shared_state_unrolled_feedback_001`: recurrent decoder feedback (feeding previous target embedding to decoder step i > 0) resolves the B3/B4 decoder stall and mode-collapse. Decoder loss drops rapidly to 0.035 in 500 steps, generating non-blank text.
 - `rwkv_state_passing_001`: correct initial state (num/den) decay and shape-stable state saving in RWKVBlock ensures perfect recurrence memory across sequence segments and steps, resulting in successful step-by-step decoding.

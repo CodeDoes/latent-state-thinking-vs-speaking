@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
-"""Tokenizer surgery experiment for RWKV nano.
+"""Layer-aware tokenizer surgery for RWKV nano.
 
-Three-phase experiment:
-  Phase 1: Pre-train a token-level RWKV on a synthetic rule task.
-  Phase 2: Replace embed + head with byte-level versions ("surgery").
-  Phase 3: Freeze core RWKV blocks, train only the new byte interface.
-  Phase 4 (control): Same architecture, train from scratch on bytes.
+Thesis: RWKV's first K layers act as a token → state encoder, the middle
+layers as a "thinking" core, and the last K layers as a state → token
+decoder. Surgery replaces the encoder+decoder with byte-level versions
+while keeping the frozen core intact.
 
-Single variable: does pre-trained RWKV knowledge transfer through
-a tokenizer surgery (token → byte) interface replacement?
+Phases:
+  1. Pre-train a token-level RWKV on a synthetic rule task using the
+     RWKV world tokenizer (65529 vocab).
+  2. Surgery: split model into encoder/core/decoder layers.
+     Replace encoder (embed + first N layers) with a byte-level encoder.
+     Replace decoder (last N layers + head) with a byte-level decoder.
+     Core layers stay frozen.
+  3. Train only the byte encoder + byte decoder.
+  4. (Control) Train same architecture from scratch on bytes.
 
 Usage:
-    # Full run (all phases)
-    python src/token_surgery.py --exp_id token_surgery_001
+    # Phase 1: pre-train on rwkv world tokenizer
+    python src/token_surgery.py --exp_id rwkv7_surgery_001 --phase 1 --steps 500
 
-    # Phase 1 only (pre-train)
-    python src/token_surgery.py --exp_id token_surgery_001 --phase 1 --steps 300
+    # Phase 2+3: surgery + train byte interface
+    python src/token_surgery.py --exp_id rwkv7_surgery_001 --phase 23 --steps 500
 
-    # Phase 2+3 (surgery + finetune)
-    python src/token_surgery.py --exp_id token_surgery_001 --phase 23 --steps 500
+    # Phase 4: from-scratch control
+    python src/token_surgery.py --exp_id rwkv7_surgery_001 --phase 4 --steps 500
 
-    # Phase 4 (control: from scratch on bytes)
-    python src/token_surgery.py --exp_id token_surgery_scratch_001 --phase 4 --steps 500
+    # All phases
+    python src/token_surgery.py --exp_id rwkv7_surgery_001 --phase 1234 --steps 300
 """
 
 import argparse
@@ -35,29 +41,22 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
-# ── Phase 1 imports (character-level) ──
-from src.rule_generator import (
-    RULES as CHAR_RULES,
-    encode as char_encode,
-    decode as char_decode,
-    PAD_ID as CHAR_PAD,
-    VOCAB as CHAR_VOCAB,
-    char_to_id,
-    id_to_char,
-)
+# ── RWKV world tokenizer ──
+from src.hf_rwkv_tokenizer import RWKV_TOKENIZER
+WORLD_VOCAB_PATH = Path(__file__).parent / "rwkv_vocab_v20230424.txt"
+world_tokenizer = RWKV_TOKENIZER(str(WORLD_VOCAB_PATH))
+WORLD_VOCAB_SIZE = len(world_tokenizer.token2idx)   # 65529
+WORLD_PAD_ID = 0  # byte 0x00
 
-# ── Phase 2+ imports (byte-level) ──
-from src.byte_vocab import (
-    encode as byte_encode,
-    decode as byte_decode,
-    VOCAB_SIZE as BYTE_VOCAB_SIZE,
-    PAD_ID as BYTE_PAD,
-    BYTE_TO_ID,
-    ID_TO_BYTE,
-)
+# ── Byte-level vocab (258 tokens: PAD=0, UNK=1, bytes 2..257 = 0x00..0xFF) ──
+BYTE_VOCAB_SIZE = 258
+BYTE_PAD = 0
+# Build byte→id lookup (same as byte_vocab.py)
+BYTE_TO_ID = {b: 2 + b for b in range(256)}  # byte 0x00 → id 2, byte 0xFF → id 257
 
-from src.rwkv_nano import RWKVNano, count_params
+from src.rwkv_nano import RWKVNano, RWKVBlock, count_params
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -71,165 +70,222 @@ def get_git_hash():
         return "unknown"
 
 
-def build_char_to_byte_map(old_vocab_size: int) -> dict[int, int]:
-    """Build a map from old token ID → byte token ID, for copying weights.
+def text_to_world_ids(text: str, max_len: int = 128) -> list[int]:
+    """Encode text using the RWKV world tokenizer."""
+    tokens = world_tokenizer.encodeBytes(text.encode("utf-8"))
+    if len(tokens) > max_len:
+        tokens = tokens[:max_len]
+    else:
+        tokens = tokens + [WORLD_PAD_ID] * (max_len - len(tokens))
+    return tokens
 
-    The old tokenizer uses CHAR_VOCAB (chars like '0', '1', ..., 'a', 'b', ...
-    plus special tokens <PAD>, <UNK>, <BOS>, <EOS>).
 
-    The byte tokenizer uses BYTE_TO_ID which maps byte values to token IDs.
+def text_to_byte_ids(text: str, max_len: int = 128) -> list[int]:
+    """Encode text as raw bytes using the 258-byte vocabulary."""
+    raw = text.encode("utf-8")
+    tokens = [BYTE_TO_ID[b] for b in raw]
+    if len(tokens) > max_len:
+        tokens = tokens[:max_len]
+    else:
+        tokens = tokens + [BYTE_PAD] * (max_len - len(tokens))
+    return tokens
 
-    For ASCII printable characters, the mapping is:
-      old_token_id(char) → BYTE_TO_ID[ord(char)]
 
-    For special tokens, we map to the closest byte equivalent:
-      <PAD> → BYTE_PAD (0)
-      <UNK> → BYTE_UNK (1)
-      other specials → BYTE_UNK
+def get_label_mask(text_len: int, total_len: int) -> list[float]:
+    """Create a loss mask: 1.0 at the label position."""
+    mask = [0.0] * total_len
+    label_pos = min(text_len - 1, total_len - 2)
+    mask[label_pos] = 1.0
+    return mask
+
+
+# ── Surgery model: byte-level encoder + frozen core + byte-level decoder ──
+
+class ByteLevelRWKV(nn.Module):
+    """RWKV with surgically replaced byte-level encoder/decoder.
+
+    Architecture:
+        byte_embed → byte_encoder (1 trainable RWKVBlock)
+        → [frozen core layers]
+        → byte_decoder (1 trainable RWKVBlock) → byte_head
     """
-    mapping = {}
-    special_map = {"<PAD>": BYTE_PAD, "<UNK>": 1}  # UNK_ID = 1
-    for old_id, char in enumerate(CHAR_VOCAB):
-        if char in special_map:
-            mapping[old_id] = special_map[char]
-        elif len(char) == 1:
-            b = ord(char)
-            if b in BYTE_TO_ID:
-                mapping[old_id] = BYTE_TO_ID[b]
-            else:
-                mapping[old_id] = 1  # UNK
-        else:
-            mapping[old_id] = 1  # UNK for multi-char tokens
-    return mapping
+
+    def __init__(
+        self,
+        core_model: RWKVNano,
+        n_encoder_layers: int = 1,
+        n_decoder_layers: int = 1,
+    ):
+        super().__init__()
+        self.dim = core_model.dim
+        self.n_core_layers = core_model.num_layers - n_encoder_layers - n_decoder_layers
+        assert self.n_core_layers >= 0, (
+            f"Need at least {n_encoder_layers + n_decoder_layers} layers, "
+            f"model has {core_model.num_layers}"
+        )
+
+        # ── Byte embedder ──
+        self.byte_embed = nn.Embedding(BYTE_VOCAB_SIZE, self.dim, padding_idx=BYTE_PAD)
+
+        # ── Byte encoder (trainable) ──
+        self.byte_encoder = nn.ModuleList([
+            RWKVBlock(self.dim) for _ in range(n_encoder_layers)
+        ])
+
+        # ── Frozen core (copied from pre-trained model) ──
+        start = n_encoder_layers
+        self.core = nn.ModuleList()
+        for i in range(start, start + self.n_core_layers):
+            layer = RWKVBlock(self.dim)
+            layer.load_state_dict(core_model.blocks[i].state_dict())
+            for p in layer.parameters():
+                p.requires_grad = False
+            self.core.append(layer)
+
+        # ── Byte decoder (trainable) ──
+        self.byte_decoder = nn.ModuleList([
+            RWKVBlock(self.dim) for _ in range(n_decoder_layers)
+        ])
+
+        # ── Output ──
+        self.ln_out = nn.LayerNorm(self.dim)
+        # Initialize ln_out from the core model's ln_out
+        self.ln_out.weight.data.copy_(core_model.ln_out.weight.data)
+        self.ln_out.bias.data.copy_(core_model.ln_out.bias.data)
+
+        self.byte_head = nn.Linear(self.dim, BYTE_VOCAB_SIZE, bias=True)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        return_state: bool = False,
+    ) -> tuple[torch.Tensor, Optional[list[dict]]]:
+        B, T = input_ids.shape
+        x = self.byte_embed(input_ids)  # (B, T, dim)
+
+        # Byte encoder
+        for block in self.byte_encoder:
+            x, _ = block(x)
+
+        # Frozen core
+        for block in self.core:
+            x, _ = block(x)
+
+        # Byte decoder
+        for block in self.byte_decoder:
+            x, _ = block(x)
+
+        x = self.ln_out(x)
+        logits = self.byte_head(x)
+        return logits, None
 
 
-def perform_surgery(pretrained_model: RWKVNano, new_vocab_size: int) -> RWKVNano:
-    """Perform tokenizer surgery on a pre-trained RWKVNano.
+def perform_surgery(pretrained_model: RWKVNano, n_encoder: int = 1, n_decoder: int = 1) -> ByteLevelRWKV:
+    """Perform layer-aware surgery on a pre-trained RWKV.
 
-    Returns a new RWKVNano with:
-    - Byte-level embed (new_vocab_size) initialized from old embed where possible
-    - Byte-level head (new_vocab_size) initialized from old head where possible
-    - All RWKV block weights copied from pretrained_model
+    Copies core layer weights, initializes byte embed from the first 258
+    rows of the old token embedding, initializes byte head from first 258
+    rows of the old head. New encoder/decoder blocks get the old
+    encoder/decoder layer weights as initialization.
     """
-    old_vocab = pretrained_model.vocab_size
-    dim = pretrained_model.dim
-    num_layers = pretrained_model.num_layers
+    model = ByteLevelRWKV(pretrained_model, n_encoder, n_decoder)
 
-    # Build the character → byte mapping
-    char_to_byte_id = build_char_to_byte_map(old_vocab)
-
-    # Create a new model with byte vocab
-    new_model = RWKVNano(
-        vocab_size=new_vocab_size,
-        dim=dim,
-        num_layers=num_layers,
-        pad_token_id=BYTE_PAD,
-    )
-
-    # Copy RWKV block weights (always frozen)
     with torch.no_grad():
-        for old_block, new_block in zip(pretrained_model.blocks, new_model.blocks):
-            new_block.load_state_dict(old_block.state_dict())
+        # Initialize byte embed from first 258 rows of old embed
+        model.byte_embed.weight.zero_()
+        # World tokenizer: first 256 tokens are bytes 0x00-0xFF at positions 0-255
+        # Our byte vocab: byte 0x00 → id 2, byte 0xFF → id 257; id 0=PAD, id 1=UNK
+        # Copy: world_token_id(b) → byte_token_id(b) for bytes 0x00-0xFF
+        for byte_val in range(256):
+            world_id = byte_val  # world tokenizer tokens 0-255 are bytes
+            byte_id = BYTE_TO_ID[byte_val]  # byte_vocab: 2..257
+            model.byte_embed.weight[byte_id].copy_(
+                pretrained_model.embed.weight[world_id]
+            )
 
-        # Copy layer norm and other non-block params
-        new_model.ln_out.weight.copy_(pretrained_model.ln_out.weight)
-        new_model.ln_out.bias.copy_(pretrained_model.ln_out.bias)
+        # Initialize byte head from first 258 rows of old head
+        model.byte_head.weight.zero_()
+        model.byte_head.bias.zero_()
+        for byte_val in range(256):
+            world_id = byte_val
+            byte_id = BYTE_TO_ID[byte_val]
+            model.byte_head.weight[byte_id].copy_(
+                pretrained_model.head.weight[world_id]
+            )
+            model.byte_head.bias[byte_id].copy_(
+                pretrained_model.head.bias[world_id]
+            )
 
-        # ── Surgery on embed ──
-        # Zero-init the new embedding, then copy old weights where chars match bytes
-        new_model.embed.weight.zero_()
-        new_model.embed.weight[BYTE_PAD].zero_()  # PAD stays zero
-        for old_id, byte_id in char_to_byte_id.items():
-            if byte_id < new_vocab_size:
-                new_model.embed.weight[byte_id].copy_(
-                    pretrained_model.embed.weight[old_id]
-                )
+        # Initialize new encoder/decoder blocks from old layer weights
+        if n_encoder > 0:
+            for new_block, old_block in zip(model.byte_encoder, pretrained_model.blocks[:n_encoder]):
+                new_block.load_state_dict(old_block.state_dict())
 
-        # ── Surgery on head ──
-        # Zero-init new head, copy old weights where possible
-        new_model.head.weight.zero_()
-        new_model.head.bias.zero_()
-        for old_id, byte_id in char_to_byte_id.items():
-            if byte_id < new_vocab_size:
-                new_model.head.weight[byte_id].copy_(
-                    pretrained_model.head.weight[old_id]
-                )
-                new_model.head.bias[byte_id].copy_(
-                    pretrained_model.head.bias[old_id]
-                )
+        if n_decoder > 0:
+            for new_block, old_block in zip(
+                model.byte_decoder,
+                pretrained_model.blocks[-n_decoder:]
+            ):
+                new_block.load_state_dict(old_block.state_dict())
 
-    return new_model
+    return model
 
 
 # ── Data generation ────────────────────────────────────────────────────────
 
 def char_example_to_tensor(rule, rng_seed: int, max_len: int = 128):
-    """Generate one example using the char-level tokenizer."""
+    """One example → world-tokenized (BPE) input."""
     import random
     rng = random.Random(rng_seed)
     rule.rng = rng
     ex = rule.generate()
     text = ex["text"]
-    toks = char_encode(text)
-    # Truncate/pad
-    if len(toks) > max_len:
-        toks = toks[:max_len]
-    else:
-        toks = toks + [CHAR_PAD] * (max_len - len(toks))
+    toks = text_to_world_ids(text, max_len)
     input_ids = torch.tensor(toks, dtype=torch.long)
     targets = torch.roll(input_ids, shifts=-1)
-    targets[-1] = CHAR_PAD
-    # Mask: loss on label tokens only
-    mask = torch.zeros(max_len, dtype=torch.float)
-    # Label is at the last character of the answer
-    label_pos = min(len(ex["text"]) - 1, max_len - 2)
-    mask[label_pos] = 1.0
+    targets[-1] = WORLD_PAD_ID
+    mask = torch.tensor(get_label_mask(len(text), max_len), dtype=torch.float)
     return input_ids, targets, mask
 
 
-def byte_example_to_tensor(rule, rng_seed: int, max_len: int = 128):
-    """Generate one example using the byte-level tokenizer."""
+def byte_example_to_tensor(rule, rng_seed: int, max_len: int = 256):
+    """One example → byte-tokenized input."""
     import random
     rng = random.Random(rng_seed)
     rule.rng = rng
     ex = rule.generate()
     text = ex["text"]
-    toks = byte_encode(text, max_len=max_len)
-    if len(toks) < max_len:
-        toks = toks[:max_len]
+    toks = text_to_byte_ids(text, max_len)
     input_ids = torch.tensor(toks, dtype=torch.long)
     targets = torch.roll(input_ids, shifts=-1)
     targets[-1] = BYTE_PAD
-    # Mask: loss on label tokens only
-    mask = torch.zeros(max_len, dtype=torch.float)
-    label_pos = min(len(ex["text"]) - 1, max_len - 2)
-    mask[label_pos] = 1.0
+    mask = torch.tensor(get_label_mask(len(text), max_len), dtype=torch.float)
     return input_ids, targets, mask
 
 
 # ── Phase functions ────────────────────────────────────────────────────────
 
 def phase1_pretrain(args, exp_dir):
-    """Phase 1: Pre-train token-level RWKV on a char rule task."""
+    """Phase 1: Pre-train RWKV on world-tokenized data."""
     print("=" * 60)
-    print(f"Phase 1: Pre-training on char-level task (rule={args.rule})")
+    print(f"Phase 1: Pre-training on world tokenizer (vocab={WORLD_VOCAB_SIZE})")
+    print(f"         rule={args.rule}, dim={args.dim}, layers={args.layers}")
     print("=" * 60)
 
+    from src.rule_generator import RULES as CHAR_RULES
     rule = CHAR_RULES[args.rule]
-    char_vocab_size = len(CHAR_VOCAB)
 
     model = RWKVNano(
-        vocab_size=char_vocab_size,
+        vocab_size=WORLD_VOCAB_SIZE,
         dim=args.dim,
         num_layers=args.layers,
-        pad_token_id=CHAR_PAD,
+        pad_token_id=WORLD_PAD_ID,
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    print(f"Model params: {count_params(model):,} (vocab={char_vocab_size})")
+    print(f"Model params: {count_params(model):,}")
 
     t_start = time.time()
     for step in range(1, args.steps + 1):
-        # Generate batch
         input_ids_list, target_list, mask_list = [], [], []
         for i in range(args.batch_size):
             seed = step * args.batch_size + i
@@ -261,15 +317,14 @@ def phase1_pretrain(args, exp_dir):
             sps = step / max(elapsed, 1e-6)
             print(f"  step {step:4d}/{args.steps}  loss={loss.item():.4f}  {sps:.1f} st/s")
 
-    # Save checkpoint
-    ckpt_path = exp_dir / "pretrained_char.pt"
+    ckpt_path = exp_dir / "pretrained_world.pt"
     torch.save({
         "model_state": model.state_dict(),
         "config": {
-            "vocab_size": char_vocab_size,
+            "vocab_size": WORLD_VOCAB_SIZE,
             "dim": args.dim,
             "num_layers": args.layers,
-            "vocab_kind": "char",
+            "vocab_kind": "rwkv_world",
             "rule": args.rule,
         },
     }, ckpt_path)
@@ -278,46 +333,46 @@ def phase1_pretrain(args, exp_dir):
 
 
 def phase23_surgery(args, exp_dir, pretrained_path: Path):
-    """Phase 2+3: Surgery + fine-tune on byte-level task."""
+    """Phase 2+3: Layer-aware surgery + byte-level fine-tune."""
     print("=" * 60)
     print(f"Phase 2-3: Surgery + byte-level fine-tune (rule={args.rule})")
     print("=" * 60)
 
-    # Load pre-trained
     ckpt = torch.load(pretrained_path, map_location="cpu")
-    old_vocab = ckpt["config"]["vocab_size"]
-    dim = ckpt["config"]["dim"]
-    layers = ckpt["config"]["num_layers"]
+    cfg = ckpt["config"]
+    dim = cfg["dim"]
+    layers = cfg["num_layers"]
+    n_enc = getattr(args, 'n_encoder_layers', max(1, layers // 3))
+    n_dec = getattr(args, 'n_decoder_layers', max(1, layers // 3))
+    n_core = layers - n_enc - n_dec
 
-    old_model = RWKVNano(vocab_size=old_vocab, dim=dim, num_layers=layers)
+    print(f"  Split: {n_enc} encoder + {n_core} core + {n_dec} decoder")
+
+    old_model = RWKVNano(vocab_size=cfg["vocab_size"], dim=dim, num_layers=layers)
     old_model.load_state_dict(ckpt["model_state"])
-    print(f"Loaded pre-trained model (vocab={old_vocab}, dim={dim})")
+    print(f"  Loaded pre-trained model (vocab={cfg['vocab_size']}, {layers} layers)")
 
-    # Perform surgery
-    model = perform_surgery(old_model, BYTE_VOCAB_SIZE)
-    new_params = count_params(model)
+    # Perform layer-aware surgery
+    model = perform_surgery(old_model, n_enc, n_dec)
 
-    # Freeze RWKV blocks
-    trainable_params = 0
-    for name, p in model.named_parameters():
-        if "embed" in name or "head" in name:
-            p.requires_grad = True
-            trainable_params += p.numel()
-        else:
-            p.requires_grad = False
-    print(f"Frozen blocks: {new_params - trainable_params:,} params")
-    print(f"Trainable (embed + head): {trainable_params:,} params")
+    # Count trainable params
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    print(f"  Trainable: {trainable:,} / {total:,} params "
+          f"(encoder+decoder={trainable:,}, core frozen={total - trainable:,})")
 
-    # Verify: logits for known char '0' should be reasonable after init
+    # Verify initialization
     with torch.no_grad():
         test_ids = torch.tensor([[BYTE_TO_ID[ord('0')]]])
         logits, _ = model(test_ids)
         top5 = logits[0, 0].topk(5)
-        print(f"  After surgery: top-5 logits for byte '0': "
-              f"{[ID_TO_BYTE.get(i.item(), '?') for i in top5.indices]} "
-              f"(values={top5.values.tolist()})")
+        print(f"  Init check: top-5 logits for byte '0': "
+              f"{[chr(b) if (b:=bid-2) in range(256) else '?' for bid in top5.indices]} "
+              f"(values={[round(v.item(),3) for v in top5.values]})")
 
+    from src.rule_generator import RULES as CHAR_RULES
     rule = CHAR_RULES[args.rule]
+
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=args.lr,
@@ -328,7 +383,7 @@ def phase23_surgery(args, exp_dir, pretrained_path: Path):
     for step in range(1, args.steps + 1):
         input_ids_list, target_list, mask_list = [], [], []
         for i in range(args.batch_size):
-            seed = step * args.batch_size + i + 100000  # offset to avoid repeating phase-1 data
+            seed = step * args.batch_size + i + 100000
             inp, tgt, msk = byte_example_to_tensor(rule, seed, args.max_len)
             input_ids_list.append(inp)
             target_list.append(tgt)
@@ -359,18 +414,18 @@ def phase23_surgery(args, exp_dir, pretrained_path: Path):
             recent = sum(losses[-min(len(losses), args.log_every):]) / min(len(losses), args.log_every)
             print(f"  step {step:4d}/{args.steps}  loss={recent:.4f}  {sps:.1f} st/s")
 
-    # Save surgery model
     ckpt_path = exp_dir / "surgery_finetuned.pt"
     torch.save({
         "model_state": model.state_dict(),
         "config": {
-            "vocab_size": BYTE_VOCAB_SIZE,
-            "dim": dim,
-            "num_layers": layers,
             "vocab_kind": "byte_surgery",
+            "n_encoder": n_enc,
+            "n_core": n_core,
+            "n_decoder": n_dec,
+            "dim": dim,
             "rule": args.rule,
-            "trainable_params": trainable_params,
-            "frozen_params": new_params - trainable_params,
+            "trainable_params": trainable,
+            "frozen_params": total - trainable,
         },
         "loss_trace": losses,
     }, ckpt_path)
@@ -379,27 +434,41 @@ def phase23_surgery(args, exp_dir, pretrained_path: Path):
 
 
 def phase4_from_scratch(args, exp_dir):
-    """Phase 4 (control): Train from scratch on bytes, same architecture."""
+    """Phase 4 (control): Train ByteLevelRWKV from scratch on bytes."""
     print("=" * 60)
     print(f"Phase 4 (control): From-scratch byte-level (rule={args.rule})")
     print("=" * 60)
 
+    n_enc = getattr(args, 'n_encoder_layers', 1)
+    n_dec = getattr(args, 'n_decoder_layers', 1)
+
+    from src.rule_generator import RULES as CHAR_RULES
     rule = CHAR_RULES[args.rule]
-    model = RWKVNano(
+
+    # Create a scratch "core" to get the architecture
+    dummy_core = RWKVNano(
         vocab_size=BYTE_VOCAB_SIZE,
         dim=args.dim,
-        num_layers=args.layers,
+        num_layers=n_enc + n_dec + 1,  # minimal core of 1
         pad_token_id=BYTE_PAD,
     )
+    model = ByteLevelRWKV(dummy_core, n_enc, n_dec)
+
+    # Unfreeze everything for from-scratch training
+    for p in model.parameters():
+        p.requires_grad = True
+
+    total = sum(p.numel() for p in model.parameters())
+    print(f"  Model params: {total:,} (all trainable)")
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    print(f"Model params: {count_params(model):,} (vocab={BYTE_VOCAB_SIZE})")
 
     t_start = time.time()
     losses = []
     for step in range(1, args.steps + 1):
         input_ids_list, target_list, mask_list = [], [], []
         for i in range(args.batch_size):
-            seed = step * args.batch_size + i + 200000  # distinct seed range
+            seed = step * args.batch_size + i + 200000
             inp, tgt, msk = byte_example_to_tensor(rule, seed, args.max_len)
             input_ids_list.append(inp)
             target_list.append(tgt)
@@ -430,15 +499,12 @@ def phase4_from_scratch(args, exp_dir):
             recent = sum(losses[-min(len(losses), args.log_every):]) / min(len(losses), args.log_every)
             print(f"  step {step:4d}/{args.steps}  loss={recent:.4f}  {sps:.1f} st/s")
 
-    # Save
     ckpt_path = exp_dir / "from_scratch_byte.pt"
     torch.save({
         "model_state": model.state_dict(),
         "config": {
-            "vocab_size": BYTE_VOCAB_SIZE,
-            "dim": args.dim,
-            "num_layers": args.layers,
             "vocab_kind": "byte_scratch",
+            "dim": args.dim,
             "rule": args.rule,
         },
         "loss_trace": losses,
@@ -450,67 +516,78 @@ def phase4_from_scratch(args, exp_dir):
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Tokenizer surgery experiment")
-    ap.add_argument("--exp_id", default="token_surgery_001")
-    ap.add_argument("--phase", default="1234", help="Phases to run: 1, 23, 4, 1234")
+    ap = argparse.ArgumentParser(description="RWKV world tokenizer surgery")
+    ap.add_argument("--exp_id", default="rwkv7_surgery_001")
+    ap.add_argument("--phase", default="1234")
     ap.add_argument("--rule", default="sum_threshold",
-                    choices=list(CHAR_RULES.keys()))
-    ap.add_argument("--steps", type=int, default=300,
-                    help="Steps per phase (phase 1 and phase 23/4)")
-    ap.add_argument("--pretrain_steps", type=int, default=None,
-                    help="Override phase 1 steps")
-    ap.add_argument("--finetune_steps", type=int, default=None,
-                    help="Override phase 23/4 steps")
-    ap.add_argument("--batch_size", type=int, default=4)
-    ap.add_argument("--max_len", type=int, default=128)
+                    choices=["sum_threshold", "vowel_majority", "endpoint_match",
+                             "count_trigger", "parity", "modulo3"])
+    ap.add_argument("--steps", type=int, default=300)
+    ap.add_argument("--pretrain_steps", type=int, default=None)
+    ap.add_argument("--finetune_steps", type=int, default=None)
+    ap.add_argument("--batch_size", type=int, default=8)
+    ap.add_argument("--max_len", type=int, default=128,
+                    help="Max token length for world tokenizer (phase 1)")
+    ap.add_argument("--byte_max_len", type=int, default=256,
+                    help="Max byte length for byte phases (23, 4)")
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--dim", type=int, default=64)
-    ap.add_argument("--layers", type=int, default=2)
+    ap.add_argument("--layers", type=int, default=3,
+                    help="Total layers: split as encoder+core+decoder")
+    ap.add_argument("--n_encoder_layers", type=int, default=None,
+                    help="Layers to replace with byte encoder (default: max(1, layers//3))")
+    ap.add_argument("--n_decoder_layers", type=int, default=None,
+                    help="Layers to replace with byte decoder (default: max(1, layers//3))")
     ap.add_argument("--log_every", type=int, default=25)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    # Resolve step overrides
-    p1_steps = args.pretrain_steps if args.pretrain_steps is not None else args.steps
-    p23_steps = args.finetune_steps if args.finetune_steps is not None else args.steps
-    p4_steps = args.finetune_steps if args.finetune_steps is not None else args.steps
+    p1_steps = args.pretrain_steps or args.steps
+    p23_steps = args.finetune_steps or args.steps
+    p4_steps = args.finetune_steps or args.steps
+
+    # Default split: 1 encoder, rest-1 decoder, or thirds
+    if args.n_encoder_layers is None:
+        args.n_encoder_layers = max(1, args.layers // 3)
+    if args.n_decoder_layers is None:
+        args.n_decoder_layers = max(1, args.layers // 3)
 
     torch.manual_seed(args.seed)
     exp_dir = Path("experiments") / args.exp_id
     exp_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save config
     config = vars(args)
     config["git_hash"] = get_git_hash()
     config["p1_steps"] = p1_steps
     config["p23_steps"] = p23_steps
     config["p4_steps"] = p4_steps
+    config["world_vocab_size"] = WORLD_VOCAB_SIZE
+    config["byte_vocab_size"] = BYTE_VOCAB_SIZE
     (exp_dir / "config.json").write_text(json.dumps(config, indent=2))
     print(f"Config: {exp_dir / 'config.json'}")
     print(f"  git hash: {config['git_hash']}")
     print(f"  rule: {args.rule}")
-    print(f"  phases: {args.phase} (p1={p1_steps} st, p23={p23_steps} st, p4={p4_steps} st)")
+    print(f"  layers: {args.layers} (enc={args.n_encoder_layers}, "
+          f"core={args.layers - args.n_encoder_layers - args.n_decoder_layers}, "
+          f"dec={args.n_decoder_layers})")
+    print(f"  world vocab: {WORLD_VOCAB_SIZE}, byte vocab: {BYTE_VOCAB_SIZE}")
     print()
 
     results = {}
 
-    # Phase 1: pre-train on chars
     if "1" in args.phase:
-        pretrained_path = exp_dir / "pretrained_char.pt"
+        pretrained_path = exp_dir / "pretrained_world.pt"
         if not pretrained_path.exists():
             pretrained_path = phase1_pretrain(
-                argparse.Namespace(
-                    **{**vars(args), "steps": p1_steps}
-                ),
+                argparse.Namespace(**{**vars(args), "steps": p1_steps}),
                 exp_dir,
             )
         else:
             print(f"Phase 1 already done: {pretrained_path}")
         results["pretrain_path"] = str(pretrained_path)
 
-    # Phase 2+3: surgery + fine-tune
     if "2" in args.phase or "3" in args.phase:
-        pretrained_path = exp_dir / "pretrained_char.pt"
+        pretrained_path = exp_dir / "pretrained_world.pt"
         if not pretrained_path.exists():
             print("ERROR: Phase 1 must complete before Phase 2-3.")
             sys.exit(1)
@@ -522,7 +599,6 @@ def main():
         results["surgery_final_loss"] = surgery_losses[-1] if surgery_losses else None
         results["surgery_loss_trace"] = surgery_losses
 
-    # Phase 4: from scratch on bytes (control)
     if "4" in args.phase:
         scratch_losses = phase4_from_scratch(
             argparse.Namespace(**{**vars(args), "steps": p4_steps}),
@@ -536,13 +612,15 @@ def main():
     print("=" * 60)
     print("RESULTS")
     print("=" * 60)
-    if results.get("surgery_final_loss") is not None:
-        print(f"  Surgery (pretrained → byte): final loss = {results['surgery_final_loss']:.4f}")
-    if results.get("scratch_final_loss") is not None:
-        print(f"  Scratch (byte from zero):    final loss = {results['scratch_final_loss']:.4f}")
-    if results.get("surgery_final_loss") is not None and results.get("scratch_final_loss") is not None:
-        diff = results["scratch_final_loss"] - results["surgery_final_loss"]
-        print(f"  Δ (scratch - surgery):       {diff:+.4f}")
+    sf = results.get("surgery_final_loss")
+    sc = results.get("scratch_final_loss")
+    if sf is not None:
+        print(f"  Surgery (world→byte): final loss = {sf:.4f}")
+    if sc is not None:
+        print(f"  Scratch (byte scratch): final loss = {sc:.4f}")
+    if sf is not None and sc is not None:
+        diff = sc - sf
+        print(f"  Δ (scratch − surgery): {diff:+.4f}")
         if diff > 0:
             print(f"  → Surgery transfers knowledge (lower loss)")
         elif diff < 0:
@@ -553,8 +631,7 @@ def main():
     # Save metrics
     for k, v in results.items():
         if isinstance(v, list):
-            # Don't save full traces in metrics.json (too big)
-            results[k] = [round(x, 4) for x in v[-10:]]  # last 10
+            results[k] = [round(x, 4) for x in v[-10:]]
     (exp_dir / "metrics.json").write_text(json.dumps(results, indent=2))
     print(f"\nResults saved to: {exp_dir}/")
 

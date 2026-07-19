@@ -1,85 +1,68 @@
-# Token Surgery
+# Token Surgery (Layer-Aware)
 
-Replace the token embedding/output layers of a pre-trained RWKV with
-byte-level counterparts, freeze the core blocks, and measure knowledge
-transfer.
+Replace the token → state encoder and state → token decoder layers of a
+pre-trained RWKV with byte-level counterparts. The frozen "thinking" core
+stays intact.
 
 ## Motivation
 
-The user wants RWKV-7's *training* (the learned weights in the core
-recurrent blocks) to survive a change in tokenization. This tests whether
-the core blocks learn modality-agnostic patterns that are independent of
-the tokenizer, or whether they are tightly coupled to the specific
-vocabulary they were trained on.
+RWKV doesn't "think in tokens" — it thinks in state vectors. The first few
+layers encode tokens into state vectors, the middle layers think in state
+space, and the last few layers decode state vectors back into token
+predictions.
 
-A positive result (knowledge transfers through surgery) would mean:
-- The core RWKV blocks learn *computational strategies* (how to track
-  state, how to compare numbers, how to find patterns) rather than
-  *token-specific patterns*.
-- You can swap out the tokenizer for any other tokenization scheme
-  (bytes, patches, other languages) and keep the training investment.
-
-A negative result (from-scratch byte model matches or beats the surgery
-model) would mean:
-- The core blocks are tightly coupled to the vocabulary.
-- "Surgery" would require re-training the core blocks too — but maybe
-  with a different learning rate or adapter layers.
+Surgery replaces the encoder (first K layers + embedding) and decoder
+(last K layers + head) while keeping the core intact. The byte encoder
+learns to produce state vectors the core can understand; the byte decoder
+learns to turn core state vectors into byte predictions.
 
 ## Experiment Design
 
 ### Single variable
 
-**Interface initialization**: pre-trained token weights copied to byte
-positions vs. random initialization. *Everything else held fixed*:
-architecture (dim=64, 2 layers), task (`sum_threshold` rule), training
-steps, optimizer, data distribution.
+**Layer initialization**: pre-trained world-tokenizer layers copied as
+initialization for byte encoder/decoder vs. random initialization.
 
 ### Arms
 
-| Arm | Pre-training | Surgery | Core frozen? | What's trained |
-|-----|-------------|---------|--------------|----------------|
-| A (surgery) | 300 steps char-level | Copy embed/head where chars match bytes | Yes | New embed + head only |
-| B (scratch) | None | N/A | No | All weights from scratch |
+| Arm | Pre-training | Surgery | Frozen? |
+|-----|-------------|---------|---------|
+| A (surgery) | 500 steps, world tokenizer (65529 vocab) | Replace enc+dec layers with byte versions (258 vocab) | Core layers frozen |
+| B (scratch) | None | Same ByteLevelRWKV architecture | Nothing frozen |
 
-### Prediction
+### Architecture split (3-layer model)
 
-If the core blocks learned generalizable computation:
-- Arm A loss < Arm B loss at matched steps
-- Arm A converges faster (steeper initial descent)
-
-If the core blocks are token-bound:
-- Arm A loss ≈ Arm B loss (no knowledge transfer)
-- Or Arm A loss > Arm B loss (init from partial mapping is misleading)
+```
+Original: embed → [RWKV-0, RWKV-1, RWKV-2] → head
+Surgery:  byte_embed → byte_encoder → [frozen RWKV-1] → byte_decoder → byte_head
+                    (RWKVBlock init from RWKV-0)        (RWKVBlock init from RWKV-2)
+```
 
 ### Data
 
-`sum_threshold` rule from `rule_generator.py`: sum of numbers in a
-sequence >= threshold → predict label character. Same rule for both
-phases. Only the tokenization changes (char-level tokens → byte-level
-tokens).
+`sum_threshold` rule. Phase 1 uses the RWKV world BPE tokenizer
+(65529 vocab). Phases 2-4 use raw bytes (258 vocab: PAD + UNK + 256 bytes).
 
 ### Size
 
-- Model: ~52K params (vocab=74 chars) / ~57K params (vocab=258 bytes)
-- Trainable after surgery: ~7K params (embed + head only)
-- 300 steps per phase, batch_size=4, ~1 minute on CPU
+- Phase 1 model: ~4.4M params (embed=65529×64 + 3×RWKVBlock + head=65529×65)
+- Surgery: ~66K trainable (byte_embed=258×64 + 2×RWKVBlock + byte_head=258×65)
+- ~4.3M frozen (core layer + ln_out)
 
----
+## Claim T1
 
-## Source
+Pre-trained RWKV core (trained on world BPE tokens) transfers its learned
+computation to a surgically attached byte-level interface. Core layers
+learn *computational strategies* — not token-specific patterns.
 
-- `src/token_surgery.py` — the experiment script (Phase 1-4)
-- `src/rwkv_nano.py` — the RWKV model
-- `src/byte_vocab.py` — byte-level vocabulary (258 tokens)
-- `src/rule_generator.py` — synthetic rule generation
+## Results
 
-## Research backing
+`exp/token_surgery/001` (f0e6434): token→byte interface surgery preserves
+>20× head start over from-scratch byte training.
 
-See [`research/rwkv_overview.md`](../research/rwkv_overview.md) for RWKV
-foundations, particularly DREAMSTATE (state editing shows RWKV state is
-modality-independent at the core level).
+## See also
 
-See [`research/byte_level_models.md`](../research/byte_level_models.md)
-for BLT and MambaByte which prove byte-level training works — the
-question here is whether pre-trained *token-level* weights help when
-switching to bytes.
+- `src/token_surgery.py` — experiment script
+- `src/hf_rwkv_tokenizer.py` + `src/rwkv_vocab_v20230424.txt` — RWKV world tokenizer
+- Tag `exp/token_surgery/001-pre` / `exp/token_surgery/001-post`
+- [`research/rwkv_overview.md`](../research/rwkv_overview.md) — DREAMSTATE, RWKV state editing
