@@ -59,7 +59,16 @@ BYTE_VOCAB_SIZE = 258
 BYTE_PAD = 0
 BYTE_TO_ID = {b: 2 + b for b in range(256)}  # byte 0x00 → id 2, ... 0xFF → id 257
 
-from src.rwkv_nano import RWKVNano, RWKVBlock, count_params
+from src.rwkv_nano import (
+    RWKV7Nano, RWKV7Block,
+    LegacyRWKVNano, LegacyRWKVBlock,
+    count_params,
+)
+
+# The surgery code uses LegacyRWKVNano for loading old RWKV-4 checkpoints.
+# New experiments should use RWKV7Nano (RWKV-7 architecture) directly.
+RWKVNano = LegacyRWKVNano
+RWKVBlock = LegacyRWKVBlock
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -183,24 +192,24 @@ class ByteLevelRWKV(nn.Module):
         """Byte → encoder states. Returns (B, T_byte, dim)."""
         x = self.byte_embed(input_ids)
         for block in self.byte_encoder:
-            x, _ = block(x)
+            x, _, _ = block(x)
         return x
 
     def forward_core(self, x: torch.Tensor) -> torch.Tensor:
         """Core states → core outputs."""
         for block in self.core:
-            x, _ = block(x)
+            x, _, _ = block(x)
         return x
 
     def forward(self, input_ids: torch.Tensor, **kw) -> tuple[torch.Tensor, None]:
         B, T = input_ids.shape
         x = self.byte_embed(input_ids)
         for block in self.byte_encoder:
-            x, _ = block(x)
+            x, _, _ = block(x)
         for block in self.core:
-            x, _ = block(x)
+            x, _, _ = block(x)
         for block in self.byte_decoder:
-            x, _ = block(x)
+            x, _, _ = block(x)
         x = self.ln_out(x)
         logits = self.byte_head(x)
         return logits, None
