@@ -240,9 +240,14 @@ def create_surgery_model(pretrained_model: RWKVNano,
                                         pretrained_model.blocks[:n_encoder]):
                     new_b.load_state_dict(old_b.state_dict())
             if n_decoder > 0:
+                # Init from second-to-last layers, NOT the last layer.
+                # The last layer is token-vocabulary-specific (state→token
+                # decoder). The second-to-last layer produces general state
+                # vectors that the byte decoder can adapt.
+                start = max(0, len(pretrained_model.blocks) - n_decoder - 1)
                 for new_b, old_b in zip(
                     model.byte_decoder,
-                    pretrained_model.blocks[-n_decoder:]
+                    pretrained_model.blocks[start:start + n_decoder]
                 ):
                     new_b.load_state_dict(old_b.state_dict())
 
@@ -741,6 +746,8 @@ def main():
     ap.add_argument("--n_decoder_layers", type=int, default=None)
     ap.add_argument("--log_every", type=int, default=25)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--alternate", type=int, default=0,
+                    help="Run N alternating rounds: distil→task→distil→task→...")
     args = ap.parse_args()
 
     p1_steps = args.pretrain_steps or args.steps
@@ -818,6 +825,124 @@ def main():
         )
         results["scratch_final_loss"] = scratch_losses[-1] if scratch_losses else None
         results["scratch_loss_trace"] = scratch_losses
+
+    # ── Alternating training loop ────────────────────────────────────────
+    if args.alternate > 0:
+        pretrained_path = exp_dir / "pretrained_world.pt"
+        if not pretrained_path.exists():
+            print("ERROR: Need Phase 1 before alternating loop.")
+            sys.exit(1)
+        ckpt = torch.load(pretrained_path, map_location="cpu")
+        cfg = ckpt["config"]
+        dim = cfg["dim"]
+        layers = cfg["num_layers"]
+        n_enc = getattr(args, 'n_encoder_layers', max(1, layers // 3))
+        n_dec = getattr(args, 'n_decoder_layers', max(1, layers // 3))
+
+        old_model = RWKVNano(vocab_size=cfg["vocab_size"], dim=dim, num_layers=layers)
+        old_model.load_state_dict(ckpt["model_state"])
+
+        # Create surgery model with world init
+        model = create_surgery_model(old_model, n_enc, n_dec, init_from_world=True)
+
+        print()
+        print("=" * 60)
+        print(f"Alternating loop: {args.alternate} rounds (distil→task→distil→...)")
+        print("=" * 60)
+        for round_idx in range(1, args.alternate + 1):
+            print(f"\n--- Alternating round {round_idx}/{args.alternate} ---")
+
+            # Distil: train encoder to match world states
+            # Only train byte_embed + byte_encoder
+            for p in model.byte_embed.parameters():
+                p.requires_grad = True
+            for p in model.byte_encoder.parameters():
+                p.requires_grad = True
+            for p in model.core.parameters():
+                p.requires_grad = False
+            for p in model.byte_decoder.parameters():
+                p.requires_grad = False
+            for p in model.ln_out.parameters():
+                p.requires_grad = False
+            for p in model.byte_head.parameters():
+                p.requires_grad = False
+
+            from src.rule_generator import RULES as CHAR_RULES
+            rule = CHAR_RULES[args.rule]
+            enc_layer_idx = n_enc - 1
+
+            d_steps = max(25, p0_steps // (round_idx + 1))
+            opt_d = torch.optim.AdamW(
+                [p for p in model.parameters() if p.requires_grad], lr=args.lr,
+            )
+            print(f"  Distil round {round_idx}: {d_steps} steps")
+            for step in range(1, d_steps + 1):
+                byte_ids, w_states, spans, max_nt = generate_distillation_batch(
+                    rule, 4, old_model, enc_layer_idx,
+                    16, 64, seed_offset=round_idx * 10000 + step,
+                )
+                byte_states = model.forward_encoder(byte_ids)
+                pooled = pool_byte_states(byte_states, spans, w_states.shape[1])
+                mask = (w_states.abs().sum(dim=-1) > 1e-8).float()
+                diff = (pooled - w_states).pow(2).sum(dim=-1)
+                loss = (diff * mask).sum() / (mask.sum() + 1e-8)
+                opt_d.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    [p for p in model.parameters() if p.requires_grad], 1.0,
+                )
+                opt_d.step()
+                if step == 1 or step % 25 == 0:
+                    print(f"    step {step:3d}/{d_steps}  mse={loss.item():.6f}")
+
+            # Task: train encoder + decoder
+            for p in model.parameters():
+                p.requires_grad = True
+            for p in model.core.parameters():
+                p.requires_grad = False  # always freeze core
+
+            t_steps = max(50, p23_steps // (round_idx + 1))
+            opt_t = torch.optim.AdamW(
+                [p for p in model.parameters() if p.requires_grad], lr=args.lr,
+            )
+            byte_max = args.byte_max_len or args.max_len * 2
+            print(f"  Task round {round_idx}: {t_steps} steps")
+            for step in range(1, t_steps + 1):
+                input_ids_list, target_list, mask_list = [], [], []
+                for i in range(args.batch_size):
+                    seed = round_idx * 100000 + step * args.batch_size + i
+                    inp, tgt, msk = byte_example_to_tensor(rule, seed, byte_max)
+                    input_ids_list.append(inp)
+                    target_list.append(tgt)
+                    mask_list.append(msk)
+                input_ids = torch.stack(input_ids_list)
+                targets = torch.stack(target_list)
+                mask = torch.stack(mask_list)
+                logits, _ = model(input_ids)
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)), targets.view(-1), reduction="none",
+                )
+                loss = loss.view_as(mask)
+                loss = (loss * mask).sum() / (mask.sum() + 1e-8)
+                opt_t.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    [p for p in model.parameters() if p.requires_grad], 1.0,
+                )
+                opt_t.step()
+                if step == 1 or step % 25 == 0 or step == t_steps:
+                    print(f"    step {step:3d}/{t_steps}  task_loss={loss.item():.4f}")
+
+        # Save final alternating model
+        torch.save({
+            "model_state": model.state_dict(),
+            "config": {
+                "vocab_kind": "byte_alternating",
+                "n_encoder": n_enc, "n_core": model.n_core, "n_decoder": n_dec,
+                "dim": dim, "rounds": args.alternate,
+            },
+        }, exp_dir / "alternating_final.pt")
+        print(f"\nAlternating loop done ({args.alternate} rounds) → alternating_final.pt")
 
     # Summary
     print()

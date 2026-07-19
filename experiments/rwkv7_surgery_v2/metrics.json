@@ -1,0 +1,3 @@
+{
+  "distil_path": "experiments/rwkv7_surgery_v2/distilled_encoder.pt"
+}
