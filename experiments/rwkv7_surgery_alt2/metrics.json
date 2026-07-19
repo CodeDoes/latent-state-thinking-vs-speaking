@@ -1,0 +1,3 @@
+{
+  "pretrain_path": "experiments/rwkv7_surgery_alt2/pretrained_world.pt"
+}

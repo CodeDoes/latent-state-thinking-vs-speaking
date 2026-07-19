@@ -1,0 +1,18 @@
+{
+  "exp_id": "ml_train_001",
+  "mode": "alternate",
+  "steps": 500,
+  "rounds": 6,
+  "batch_size": 4,
+  "lr": 0.0003,
+  "dim": 64,
+  "head_size": 32,
+  "layers": 3,
+  "languages": "en,fr,de,ja,es",
+  "max_stories": 5000,
+  "min_score": 7.0,
+  "log_every": 25,
+  "seed": 42,
+  "device": "cpu",
+  "git_hash": "c3a55ecc006fb13ad2c3cd76e8eeaa5dd22fb323"
+}
