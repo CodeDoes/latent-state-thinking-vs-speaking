@@ -47,3 +47,7 @@ Regardless of which attempt, every model here is one of three shapes:
 - `theories/archive/tiny-blt-rwkv.md` — V0/V1 proposal that proposed
   byte-only-then-byte-with-patcher sequence; the V0 ran, the V1
   didn't reach a clean result.
+
+---
+
+**Research links:** [`research/byte_level_models.md`](../research/byte_level_models.md) — BLT (Meta), MambaByte, ByteFlow, Charformer. See also [`research/state_space_models_mamba.md`](../research/state_space_models_mamba.md) for MambaByte's linear-time byte processing.

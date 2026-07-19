@@ -32,3 +32,7 @@ Minimal test (single variable = layout, matched params/compute):
 Single variable: training layout (triplet diffusion vs causal AR). Params locked.
 
 This would be first nano-scale replication of B3D-RWKV architectural trick, proving mechanism not scale-dependent.
+
+---
+
+**Research links:** [`research/diffusion_rnn_hybrids.md`](../research/diffusion_rnn_hybrids.md) — B3D-RWKV paper, DREAMSTATE, Recurrent Autoregressive Diffusion, RDM. See also [`research/rwkv_overview.md`](../research/rwkv_overview.md) for the RWKV foundation.

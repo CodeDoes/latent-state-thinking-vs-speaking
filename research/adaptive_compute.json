@@ -1,0 +1,63 @@
+{
+  "query": "all:adaptive+early+exit+neural+network+transformer",
+  "total": 0,
+  "results": [
+    {
+      "id": "http://arxiv.org/abs/2603.12269v1",
+      "title": "DART: Input-Difficulty-AwaRe Adaptive Threshold for Early-Exit DNNs",
+      "summary": "Early-exit deep neural networks enable adaptive inference by terminating computation when sufficient confidence is achieved, reducing cost for edge AI accelerators in resource-constrained settings. Existing methods, however, rely on suboptimal exit policies, ignore input difficulty, and optimize thresholds independently. This paper introduces DART (Input-Difficulty-Aware Adaptive Threshold), a framework that overcomes these limitations. DART introduces three key innovations: (1) a lightweight difficulty estimation module that quantifies input complexity with minimal computational overhead, (2) a joint exit policy optimization algorithm based on dynamic programming, and (3) an adaptive coefficient management system. Experiments on diverse DNN benchmarks (AlexNet, ResNet-18, VGG-16) demonstrate that DART achieves up to \\textbf{3.3$\\times$} speedup, \\textbf{5.1$\\times$} lower energy, and up to \\textbf{42\\%} lower average power compared to static networks, while preserving competitive accuracy. Extending DART to Vision Transformers (LeViT) yields power (5.0$\\times$) and execution-time (3.6$\\times$) gains but also accuracy loss (up to 17 percent), underscoring the need for transformer-specific early-exit mechanisms. We further introduce the Difficulty-Aware Efficiency Score (DAES), a novel multi-objective metric, under which DART achieves up to a 14.8 improvement over baselines, highlighting superior accuracy, efficiency, and robustness trade-offs.",
+      "published": "2026-02-17T10:39:05Z",
+      "pdf": "https://arxiv.org/pdf/2603.12269v1",
+      "authors": [
+        "Parth Patne",
+        "Mahdi Taheri",
+        "Christian Herglotz",
+        "Maksim Jenihhin",
+        "Milos Krstic",
+        "Michael H\u00fcbner"
+      ],
+      "categories": [
+        "cs.AR",
+        "cs.AI",
+        "cs.LG"
+      ],
+      "primary_category": "cs.AR"
+    },
+    {
+      "id": "http://arxiv.org/abs/2602.24159v1",
+      "title": "RAViT: Resolution-Adaptive Vision Transformer",
+      "summary": "Vision transformers have recently made a breakthrough in computer vision showing excellent performance in terms of precision for numerous applications. However, their computational cost is very high compared to alternative approaches such as Convolutional Neural Networks. To address this problem, we propose a novel framework for image classification called RAViT based on a multi-branch network that operates on several copies of the same image with different resolutions to reduce the computational cost while preserving the overall accuracy. Furthermore, our framework includes an early exit mechanism that makes our model adaptive and allows to choose the appropriate trade-off between accuracy and computational cost at run-time. For example in a two-branch architecture, the original image is first resized to reduce its resolution, then a prediction is performed on it using a first transformer and the resulting prediction is reused together with the original-size image to perform a final prediction on a second transformer with less computation than a classical Vision transformer architecture. The early-exit process allows the model to make a final prediction at intermediate branches, saving even more computation. We evaluated our approach on CIFAR-10, Tiny ImageNet, and ImageNet. We obtained an equivalent accuracy to the classical Vision transformer model with only around 70% of FLOPs.",
+      "published": "2026-02-27T16:40:04Z",
+      "pdf": "https://arxiv.org/pdf/2602.24159v1",
+      "authors": [
+        "Martial Guidez",
+        "Stefan Duffner",
+        "Christophe Garcia"
+      ],
+      "categories": [
+        "cs.CV",
+        "cs.LG"
+      ],
+      "primary_category": "cs.CV"
+    },
+    {
+      "id": "http://arxiv.org/abs/2507.07954v1",
+      "title": "Input Conditioned Layer Dropping in Speech Foundation Models",
+      "summary": "Curating foundation speech models for edge and IoT settings, where computational resources vary over time, requires dynamic architectures featuring adaptable reduction strategies. One emerging approach is layer dropping ($\\mathcal{LD}$) which skips fraction of the layers of a backbone network during inference to reduce the computational load. This allows transforming static models into dynamic ones. However, existing approaches exhibit limitations either in the mode of selecting layers or by significantly modifying the neural architecture. To this end, we propose input-driven $\\mathcal{LD}$ that employs the network's input features and a lightweight layer selecting network to determine the optimum combination of processing layers. Extensive experimentation on 4 speech and audio public benchmarks, using two different pre-trained foundation models, demonstrates the effectiveness of our approach, thoroughly outperforming random dropping and producing on-par (or better) results to early exit.",
+      "published": "2025-07-10T17:39:03Z",
+      "pdf": "https://arxiv.org/pdf/2507.07954v1",
+      "authors": [
+        "Abdul Hannan",
+        "Daniele Falavigna",
+        "Alessio Brutti"
+      ],
+      "categories": [
+        "cs.SD",
+        "cs.CV",
+        "eess.AS"
+      ],
+      "primary_category": "cs.SD",
+      "comment": "Accepted at IEEE MLSP 2025"
+    }
+  ]
+}

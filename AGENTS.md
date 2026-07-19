@@ -7,6 +7,7 @@ Project: byte-level RWKV with adaptive state and modular memory. Thesis in [`the
 ```
 src/                models, datasets, training, analysis (Python)
 theories/           prose: design, hypotheses, results (one file per topic)
+research/           arxiv literature surveys organized by topic (see README.md)
 experiments/        per-run artifacts: config.json, train.log, metrics.json
                     (one dir per run; delete the dir to clear)
 reports/            summaries written for outside readers

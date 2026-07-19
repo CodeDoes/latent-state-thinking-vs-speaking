@@ -34,3 +34,7 @@ We ran controlled, matched-parameter validation experiments on the `logic_niiah`
 - `delta_rule` trains stably, with loss reducing from `4.28` to `3.24` in 10 steps.
 - `rwkv_state` trains stably, with loss reducing from `4.42` to `3.23` in 10 steps.
 - Full gradient checking confirms that gradients successfully flow from the next-token prediction loss all the way back to all memory parameters, including gates, keys, values, and projection parameters.
+
+---
+
+**Research links:** [`research/memory_associative.md`](../research/memory_associative.md) — DeltaNet, HOLA, Simple Linear Attention, HRM-RWKV-Text, DREAMSTATE.

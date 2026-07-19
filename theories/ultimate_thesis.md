@@ -57,3 +57,7 @@ Three scaffold variants around the same idea:
 ## Read order
 
 For an outside reader: `ultimate.md` → this file (`ultimate_thesis.md`) → the live `theories/<topic>.md` of the thread you care about → the experiment in `experiments/<id>/`. For proof backlog: `theories/proofs.md`. For dashboard: `experiments/` and the `status` view from `_status.py`.
+
+## Research backing
+
+Each topic's theory file links to its corresponding literature survey in [`research/`](../research/). See [`research/README.md`](../research/README.md) for the index.

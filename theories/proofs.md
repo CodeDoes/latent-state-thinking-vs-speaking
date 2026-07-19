@@ -7,6 +7,8 @@ Format: `exp_id (commit): <claim under matched conditions>`.
 The git_history of this file is itself the proof log — every
 supersession, every refinement is a commit on this file.
 
+For published work behind the claims, see [`research/`](../research/) — each active theory links to its literature survey.
+
 Latest first. Older entries below; nothing is deleted, only superseded.
 
 ## Proven

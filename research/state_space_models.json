@@ -1,0 +1,188 @@
+{
+  "query": "all:state+space+model+Mamba+selective",
+  "total": 0,
+  "results": [
+    {
+      "id": "http://arxiv.org/abs/2407.06136v4",
+      "title": "Mamba-FSCIL: Dynamic Adaptation with Selective State Space Model for Few-Shot Class-Incremental Learning",
+      "summary": "Few-shot class-incremental learning (FSCIL) aims to incrementally learn novel classes from limited examples while preserving knowledge of previously learned classes. Existing methods face a critical dilemma: static architectures rely on a constant parameter space to learn from data that arrive sequentially, making them prone to overfitting to the current session, while dynamic architectures continually expand the parameter space, leading to increased complexity. In this study, we explore the potential of Selective State Space Models (SSMs) for FSCIL. Mamba leverages its input-dependent parameters to dynamically adjust its processing patterns and generate content-aware scan patterns without session-wise projector expansion. This enables it to configure distinct processing for base and novel classes, helping preserve existing knowledge while adapting to new ones. To leverage Mamba's potential for FSCIL, we design two key modules: First, we propose a dual selective SSM projector that generates input-conditioned state-space parameters from intermediate features for dynamic adaptation. The dual design structurally decouples base and novel-class processing, employing a frozen base branch to maintain stable base-class features and a dynamic incremental branch that adaptively learns distinctive feature shifts for novel classes. Second, we develop a class-sensitive selective scan mechanism to guide dynamic adaptation of the incremental branch. It reduces the disruption to base-class representations caused by training on novel data, and meanwhile, encourages the selective scan to perform in distinct patterns between base and novel classes. Extensive experiments on miniImageNet, CIFAR-100, and CUB-200 demonstrate that Mamba-FSCIL achieves state-of-the-art performance.",
+      "published": "2024-07-08T17:09:39Z",
+      "pdf": "https://arxiv.org/pdf/2407.06136v4",
+      "authors": [
+        "Xiaojie Li",
+        "Yibo Yang",
+        "Jianlong Wu",
+        "Yue Yu",
+        "Ming-Hsuan Yang",
+        "Liqiang Nie",
+        "Min Zhang"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "Code: https://github.com/xiaojieli0903/Mamba-FSCIL"
+    },
+    {
+      "id": "http://arxiv.org/abs/2606.08781v2",
+      "title": "DeepMine-Mamba: Mitigating Information Dilution in Mamba-Based State Space Models for Document Image Binarization",
+      "summary": "Document image binarization aims to separate foreground text from degraded backgrounds while preserving thin, broken, and low-contrast strokes. Although deep learning methods have improved binarization performance, most existing approaches rely on convolutional, transformer-based, or generative architectures, while Mamba-based state space models remain largely unexplored for this task. In this work, we investigate Mamba-based feature propagation and observe that direct state-space propagation may dilute weak foreground cues during long-range modeling, especially faint ink traces, fragmented characters, and boundary-sensitive stroke details. To address this problem, we propose DeepMine-Mamba, a Mamba-based binarization framework equipped with a novel Anti-Dilution Gate that estimates propagation-induced feature changes and selectively restores stroke-sensitive local responses while suppressing unnecessary background enhancement. Experiments on DIBCO/H-DIBCO benchmarks under a strict leave-one-year-out protocol show that DeepMine-Mamba achieves competitive overall performance, with strong average FM and Fps across benchmark years. Ablation results further show that the Anti-Dilution Gate is the key component for mitigating propagation-induced foreground dilution and improving stroke preservation.",
+      "published": "2026-06-07T18:56:01Z",
+      "pdf": "https://arxiv.org/pdf/2606.08781v2",
+      "authors": [
+        "Sheng-Wei Chan",
+        "Yung-Che Wang",
+        "Hsin-Jui Pan",
+        "Chia-Min Lin",
+        "Jen-Shiun Chiang"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "code will be released on https://github.com/henrychan0719/Deep-Mine-Mamba"
+    },
+    {
+      "id": "http://arxiv.org/abs/2404.15772v3",
+      "title": "Bi-Mamba+: Bidirectional Mamba for Time Series Forecasting",
+      "summary": "Long-term time series forecasting (LTSF) provides longer insights into future trends and patterns. Over the past few years, deep learning models especially Transformers have achieved advanced performance in LTSF tasks. However, LTSF faces inherent challenges such as long-term dependencies capturing and sparse semantic characteristics. Recently, a new state space model (SSM) named Mamba is proposed. With the selective capability on input data and the hardware-aware parallel computing algorithm, Mamba has shown great potential in balancing predicting performance and computational efficiency compared to Transformers. To enhance Mamba's ability to preserve historical information in a longer range, we design a novel Mamba+ block by adding a forget gate inside Mamba to selectively combine the new features with the historical features in a complementary manner. Furthermore, we apply Mamba+ both forward and backward and propose Bi-Mamba+, aiming to promote the model's ability to capture interactions among time series elements. Additionally, multivariate time series data in different scenarios may exhibit varying emphasis on intra- or inter-series dependencies. Therefore, we propose a series-relation-aware decider that controls the utilization of channel-independent or channel-mixing tokenization strategy for specific datasets. Extensive experiments on 8 real-world datasets show that our model achieves more accurate predictions compared with state-of-the-art methods.",
+      "published": "2024-04-24T09:45:48Z",
+      "pdf": "https://arxiv.org/pdf/2404.15772v3",
+      "authors": [
+        "Aobo Liang",
+        "Xingguo Jiang",
+        "Yan Sun",
+        "Xiaohou Shi",
+        "Ke Li"
+      ],
+      "categories": [
+        "cs.LG"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "New Mamba-based architecture. All experiments rerun"
+    },
+    {
+      "id": "http://arxiv.org/abs/2409.18654v1",
+      "title": "Speech-Mamba: Long-Context Speech Recognition with Selective State Spaces Models",
+      "summary": "Current automatic speech recognition systems struggle with modeling long speech sequences due to high quadratic complexity of Transformer-based models. Selective state space models such as Mamba has performed well on long-sequence modeling in natural language processing and computer vision tasks. However, research endeavors in speech technology tasks has been under-explored. We propose Speech-Mamba, which incorporates selective state space modeling in Transformer neural architectures. Long sequence representations with selective state space models in Speech-Mamba is complemented with lower-level representations from Transformer-based modeling. Speech-mamba achieves better capacity to model long-range dependencies, as it scales near-linearly with sequence length.",
+      "published": "2024-09-27T11:36:31Z",
+      "pdf": "https://arxiv.org/pdf/2409.18654v1",
+      "authors": [
+        "Xiaoxue Gao",
+        "Nancy F. Chen"
+      ],
+      "categories": [
+        "eess.AS",
+        "cs.SD"
+      ],
+      "primary_category": "eess.AS",
+      "comment": "8 pages; SLT 2024"
+    },
+    {
+      "id": "http://arxiv.org/abs/2506.14802v1",
+      "title": "ss-Mamba: Semantic-Spline Selective State-Space Model",
+      "summary": "We propose ss-Mamba, a novel foundation model that enhances time series forecasting by integrating semantic-aware embeddings and adaptive spline-based temporal encoding within a selective state-space modeling framework. Building upon the recent success of Transformer architectures, ss-Mamba adopts the Mamba selective state space model as an efficient alternative that achieves comparable performance while significantly reducing computational complexity from quadratic to linear time. Semantic index embeddings, initialized from pretrained language models, allow effective generalization to previously unseen series through meaningful semantic priors. Additionally, spline-based Kolmogorov-Arnold Networks (KAN) dynamically and interpretably capture complex seasonalities and non-stationary temporal effects, providing a powerful enhancement over conventional temporal feature encodings. Extensive experimental evaluations confirm that ss-Mamba delivers superior accuracy, robustness, and interpretability, demonstrating its capability as a versatile and computationally efficient alternative to traditional Transformer-based models in time-series forecasting.",
+      "published": "2025-06-03T03:26:57Z",
+      "pdf": "https://arxiv.org/pdf/2506.14802v1",
+      "authors": [
+        "Zuochen Ye"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.AI"
+      ],
+      "primary_category": "cs.LG"
+    },
+    {
+      "id": "http://arxiv.org/abs/2507.06204v2",
+      "title": "Differential Mamba",
+      "summary": "Sequence models like Transformers and RNNs often overallocate attention to irrelevant context, leading to noisy intermediate representations. This degrades LLM capabilities by promoting hallucinations, weakening long-range and retrieval abilities, and reducing robustness. Recent work has shown that differential design can mitigate this issue in Transformers, improving their effectiveness across various applications. In this paper, we explore whether these techniques, originally developed for Transformers, can be applied to Mamba, a recent architecture based on selective state-space layers that achieves Transformer-level performance with greater efficiency. We show that a naive adaptation of differential design to Mamba is insufficient and requires careful architectural modifications. To address this, we introduce a novel differential mechanism for Mamba, empirically validated on language modeling benchmarks, demonstrating improved retrieval capabilities and superior performance over vanilla Mamba. Finally, we conduct extensive ablation studies and empirical analyses to justify our design choices and provide evidence that our approach effectively mitigates the overallocation problem in Mamba-based models. Our code is publicly available: https://github.com/NadavSc/Diff-Mamba",
+      "published": "2025-07-08T17:30:14Z",
+      "pdf": "https://arxiv.org/pdf/2507.06204v2",
+      "authors": [
+        "Nadav Schneider",
+        "Itamar Zimerman",
+        "Eliya Nachmani"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.AI",
+        "cs.CL"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "AACL 2025. We provide the code at https://github.com/NadavSc/Diff-Mamba"
+    },
+    {
+      "id": "http://arxiv.org/abs/2312.00752v2",
+      "title": "Mamba: Linear-Time Sequence Modeling with Selective State Spaces",
+      "summary": "Foundation models, now powering most of the exciting applications in deep learning, are almost universally based on the Transformer architecture and its core attention module. Many subquadratic-time architectures such as linear attention, gated convolution and recurrent models, and structured state space models (SSMs) have been developed to address Transformers' computational inefficiency on long sequences, but they have not performed as well as attention on important modalities such as language. We identify that a key weakness of such models is their inability to perform content-based reasoning, and make several improvements. First, simply letting the SSM parameters be functions of the input addresses their weakness with discrete modalities, allowing the model to selectively propagate or forget information along the sequence length dimension depending on the current token. Second, even though this change prevents the use of efficient convolutions, we design a hardware-aware parallel algorithm in recurrent mode. We integrate these selective SSMs into a simplified end-to-end neural network architecture without attention or even MLP blocks (Mamba). Mamba enjoys fast inference (5$\\times$ higher throughput than Transformers) and linear scaling in sequence length, and its performance improves on real data up to million-length sequences. As a general sequence model backbone, Mamba achieves state-of-the-art performance across several modalities such as language, audio, and genomics. On language modeling, our Mamba-3B model outperforms Transformers of the same size and matches Transformers twice its size, both in pretraining and downstream evaluation.",
+      "published": "2023-12-01T18:01:34Z",
+      "pdf": "https://arxiv.org/pdf/2312.00752v2",
+      "authors": [
+        "Albert Gu",
+        "Tri Dao"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.AI"
+      ],
+      "primary_category": "cs.LG"
+    },
+    {
+      "id": "http://arxiv.org/abs/2403.12418v4",
+      "title": "STG-Mamba: Spatial-Temporal Graph Learning via Selective State Space Model",
+      "summary": "Spatial-Temporal Graph (STG) data is characterized as dynamic, heterogenous, and non-stationary, leading to the continuous challenge of spatial-temporal graph learning. In the past few years, various GNN-based methods have been proposed to solely focus on mimicking the relationships among node individuals of the STG network, ignoring the significance of modeling the intrinsic features that exist in STG system over time. In contrast, modern Selective State Space Models (SSSMs) present a new approach which treat STG Network as a system, and meticulously explore the STG system's dynamic state evolution across temporal dimension. In this work, we introduce Spatial-Temporal Graph Mamba (STG-Mamba) as the first exploration of leveraging the powerful selective state space models for STG learning by treating STG Network as a system, and employing the Spatial-Temporal Selective State Space Module (ST-S3M) to precisely focus on the selected STG latent features. Furthermore, to strengthen GNN's ability of modeling STG data under the setting of selective state space models, we propose Kalman Filtering Graph Neural Networks (KFGN) for dynamically integrate and upgrade the STG embeddings from different temporal granularities through a learnable Kalman Filtering statistical theory-based approach. Extensive empirical studies are conducted on three benchmark STG forecasting datasets, demonstrating the performance superiority and computational efficiency of STG-Mamba. It not only surpasses existing state-of-the-art methods in terms of STG forecasting performance, but also effectively alleviate the computational bottleneck of large-scale graph networks in reducing the computational cost of FLOPs and test inference time. The implementation code is available at: \\url{https://github.com/LincanLi98/STG-Mamba}.",
+      "published": "2024-03-19T04:02:57Z",
+      "pdf": "https://arxiv.org/pdf/2403.12418v4",
+      "authors": [
+        "Lincan Li",
+        "Hanchen Wang",
+        "Wenjie Zhang",
+        "Adelle Coster"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.AI"
+      ],
+      "primary_category": "cs.LG"
+    },
+    {
+      "id": "http://arxiv.org/abs/2410.21535v1",
+      "title": "ECMamba: Consolidating Selective State Space Model with Retinex Guidance for Efficient Multiple Exposure Correction",
+      "summary": "Exposure Correction (EC) aims to recover proper exposure conditions for images captured under over-exposure or under-exposure scenarios. While existing deep learning models have shown promising results, few have fully embedded Retinex theory into their architecture, highlighting a gap in current methodologies. Additionally, the balance between high performance and efficiency remains an under-explored problem for exposure correction task. Inspired by Mamba which demonstrates powerful and highly efficient sequence modeling, we introduce a novel framework based on Mamba for Exposure Correction (ECMamba) with dual pathways, each dedicated to the restoration of reflectance and illumination map, respectively. Specifically, we firstly derive the Retinex theory and we train a Retinex estimator capable of mapping inputs into two intermediary spaces, each approximating the target reflectance and illumination map, respectively. This setup facilitates the refined restoration process of the subsequent Exposure Correction Mamba Module (ECMM). Moreover, we develop a novel 2D Selective State-space layer guided by Retinex information (Retinex-SS2D) as the core operator of ECMM. This architecture incorporates an innovative 2D scanning strategy based on deformable feature aggregation, thereby enhancing both efficiency and effectiveness. Extensive experiment results and comprehensive ablation studies demonstrate the outstanding performance and the importance of each component of our proposed ECMamba. Code is available at https://github.com/LowlevelAI/ECMamba.",
+      "published": "2024-10-28T21:02:46Z",
+      "pdf": "https://arxiv.org/pdf/2410.21535v1",
+      "authors": [
+        "Wei Dong",
+        "Han Zhou",
+        "Yulun Zhang",
+        "Xiaohong Liu",
+        "Jun Chen"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "Accepted by NeurIPS 2024. Retinex-theory, Mamba, Exposure Correction"
+    },
+    {
+      "id": "http://arxiv.org/abs/2509.17711v1",
+      "title": "DA-Mamba: Dialogue-aware selective state-space model for multimodal engagement estimation",
+      "summary": "Human engagement estimation in conversational scenarios is essential for applications such as adaptive tutoring, remote healthcare assessment, and socially aware human--computer interaction. Engagement is a dynamic, multimodal signal conveyed by facial expressions, speech, gestures, and behavioral cues over time. In this work we introduce DA-Mamba, a dialogue-aware multimodal architecture that replaces attention-heavy dialogue encoders with Mamba-based selective state-space processing to achieve linear time and memory complexity while retaining expressive cross-modal reasoning. We design a Mamba dialogue-aware selective state-space model composed of three core modules: a Dialogue-Aware Encoder, and two Mamba-based fusion mechanisms: Modality-Group Fusion and Partner-Group Fusion, these modules achieve expressive dialogue understanding. Extensive experiments on three standard benchmarks (NoXi, NoXi-Add, and MPIIGI) show that DA-Mamba surpasses prior state-of-the-art (SOTA) methods in concordance correlation coefficient (CCC), while reducing training time and peak memory; these gains enable processing much longer sequences and facilitate real-time deployment in resource-constrained, multi-party conversational settings. The source code will be available at: https://github.com/kksssssss-ssda/MMEA.",
+      "published": "2025-09-22T12:48:42Z",
+      "pdf": "https://arxiv.org/pdf/2509.17711v1",
+      "authors": [
+        "Shenwei Kang",
+        "Xin Zhang",
+        "Wen Liu",
+        "Bin Li",
+        "Yujie Liu",
+        "Bo Gao"
+      ],
+      "categories": [
+        "cs.AI"
+      ],
+      "primary_category": "cs.AI"
+    }
+  ]
+}

@@ -84,3 +84,7 @@ This is the smallest system that sustains the proof — every component is load-
 2. **Adapter versioning** — semantic diff between adapter versions, not just hash
 3. **Cross-architecture registry** — same adapter interface, backbone swapped (RWKV ↔ Transformer)
 4. **Real-world rules** — replace synthetic tasks with code patterns, API schemas, user preferences
+
+---
+
+**Research links:** [`research/modular_dendritic_networks.md`](../research/modular_dendritic_networks.md) — LoRA, PathNet, MoE, Progressive Networks, Net2Net. See also [`research/memory_associative.md`](../research/memory_associative.md) for complementary learning systems and DREAMSTATE (RWKV state editing).

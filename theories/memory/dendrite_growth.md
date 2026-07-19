@@ -67,3 +67,7 @@ Not LoRA. A LoRA adds rank-r matrices to existing projections — that mutates t
 - **G1b**: Two branches independent — open.
 - **G1c**: Activation tracking finds gating neurons — open.
 - **G1d**: NO-OP probing picks the right branch without learned router — open.
+
+---
+
+**Research links:** [`research/modular_dendritic_networks.md`](../research/modular_dendritic_networks.md) — LoRA, PathNet, MoE, Progressive Networks, Net2Net, dendritic computation. See also [`research/memory_associative.md`](../research/memory_associative.md) for complementary learning systems (hippocampus ↔ neocortex) as a framework for trunk + branches.

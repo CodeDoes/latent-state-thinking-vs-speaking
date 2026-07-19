@@ -23,3 +23,7 @@ Single variable: entropy regularization weight.
 
 This cheaply validates adaptive compute mechanism from B5.
 
+---
+
+**Research links:** [`research/adaptive_compute.md`](../research/adaptive_compute.md) — DART (input-adaptive thresholds), RAViT, Input-Conditioned Layer Dropping.
+

@@ -15,3 +15,7 @@ we can also train a logic niiah. instruction+noise+needle+noise+needle-action-tr
 i want the training to be observable. i prefer to have resumable training. i prefer to constantly improve the trained model.
 
 experiments should attach their code to a git commit hash. trained models should be easy to clear.
+
+---
+
+**Research links:** [`research/rwkv_overview.md`](../research/rwkv_overview.md) — core RWKV papers, RWKV-6/Finch, GoldFinch, VisualRWKV, DREAMSTATE, DeltaProduct, WuNeng. See also [`research/state_space_models_mamba.md`](../research/state_space_models_mamba.md) for Mamba comparison.

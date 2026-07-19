@@ -1,0 +1,210 @@
+{
+  "query": "all:RWKV+recurrent+neural+network",
+  "total": 0,
+  "results": [
+    {
+      "id": "http://arxiv.org/abs/2401.09093v1",
+      "title": "RWKV-TS: Beyond Traditional Recurrent Neural Network for Time Series Tasks",
+      "summary": "Traditional Recurrent Neural Network (RNN) architectures, such as LSTM and GRU, have historically held prominence in time series tasks. However, they have recently seen a decline in their dominant position across various time series tasks. As a result, recent advancements in time series forecasting have seen a notable shift away from RNNs towards alternative architectures such as Transformers, MLPs, and CNNs. To go beyond the limitations of traditional RNNs, we design an efficient RNN-based model for time series tasks, named RWKV-TS, with three distinctive features: (i) A novel RNN architecture characterized by $O(L)$ time complexity and memory usage. (ii) An enhanced ability to capture long-term sequence information compared to traditional RNNs. (iii) High computational efficiency coupled with the capacity to scale up effectively. Through extensive experimentation, our proposed RWKV-TS model demonstrates competitive performance when compared to state-of-the-art Transformer-based or CNN-based models. Notably, RWKV-TS exhibits not only comparable performance but also demonstrates reduced latency and memory utilization. The success of RWKV-TS encourages further exploration and innovation in leveraging RNN-based approaches within the domain of Time Series. The combination of competitive performance, low latency, and efficient memory usage positions RWKV-TS as a promising avenue for future research in time series tasks. Code is available at:\\href{https://github.com/howard-hou/RWKV-TS}{ https://github.com/howard-hou/RWKV-TS}",
+      "published": "2024-01-17T09:56:10Z",
+      "pdf": "https://arxiv.org/pdf/2401.09093v1",
+      "authors": [
+        "Haowen Hou",
+        "F. Richard Yu"
+      ],
+      "categories": [
+        "cs.LG"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "13 pages. 2 figures, 14 tables"
+    },
+    {
+      "id": "http://arxiv.org/abs/2504.03289v1",
+      "title": "RWKVTTS: Yet another TTS based on RWKV-7",
+      "summary": "Human-AI interaction thrives on intuitive and efficient interfaces, among which voice stands out as a particularly natural and accessible modality. Recent advancements in transformer-based text-to-speech (TTS) systems, such as Fish-Speech, CosyVoice, and MegaTTS 3, have delivered remarkable improvements in quality and realism, driving a significant evolution in the TTS domain. In this paper, we introduce RWKV-7 \\cite{peng2025rwkv}, a cutting-edge RNN-based architecture tailored for TTS applications. Unlike traditional transformer models, RWKV-7 leverages the strengths of recurrent neural networks to achieve greater computational efficiency and scalability, while maintaining high-quality output. Our comprehensive benchmarks demonstrate that RWKV-7 outperforms transformer-based models across multiple key metrics, including synthesis speed, naturalness of speech, and resource efficiency. Furthermore, we explore its adaptability to diverse linguistic contexts and low-resource environments, showcasing its potential to democratize TTS technology. These findings position RWKV-7 as a powerful and innovative alternative, paving the way for more accessible and versatile voice synthesis solutions in real-world applications.Our code and weights are https://github.com/yynil/RWKVTTS, https://huggingface.co/spaces/RWKV-Red-Team",
+      "published": "2025-04-04T09:17:20Z",
+      "pdf": "https://arxiv.org/pdf/2504.03289v1",
+      "authors": [
+        "Lin yueyu",
+        "Liu Xiao"
+      ],
+      "categories": [
+        "cs.SD",
+        "cs.CL",
+        "eess.AS"
+      ],
+      "primary_category": "cs.SD"
+    },
+    {
+      "id": "http://arxiv.org/abs/2305.13048v2",
+      "title": "RWKV: Reinventing RNNs for the Transformer Era",
+      "summary": "Transformers have revolutionized almost all natural language processing (NLP) tasks but suffer from memory and computational complexity that scales quadratically with sequence length. In contrast, recurrent neural networks (RNNs) exhibit linear scaling in memory and computational requirements but struggle to match the same performance as Transformers due to limitations in parallelization and scalability. We propose a novel model architecture, Receptance Weighted Key Value (RWKV), that combines the efficient parallelizable training of transformers with the efficient inference of RNNs. Our approach leverages a linear attention mechanism and allows us to formulate the model as either a Transformer or an RNN, thus parallelizing computations during training and maintains constant computational and memory complexity during inference. We scale our models as large as 14 billion parameters, by far the largest dense RNN ever trained, and find RWKV performs on par with similarly sized Transformers, suggesting future work can leverage this architecture to create more efficient models. This work presents a significant step towards reconciling trade-offs between computational efficiency and model performance in sequence processing tasks.",
+      "published": "2023-05-22T13:57:41Z",
+      "pdf": "https://arxiv.org/pdf/2305.13048v2",
+      "authors": [
+        "Bo Peng",
+        "Eric Alcaide",
+        "Quentin Anthony",
+        "Alon Albalak",
+        "Samuel Arcadinho",
+        "Stella Biderman",
+        "Huanqi Cao",
+        "Xin Cheng",
+        "Michael Chung",
+        "Matteo Grella",
+        "Kranthi Kiran GV",
+        "Xuzheng He",
+        "Haowen Hou",
+        "Jiaju Lin",
+        "Przemyslaw Kazienko",
+        "Jan Kocon",
+        "Jiaming Kong",
+        "Bartlomiej Koptyra",
+        "Hayden Lau",
+        "Krishna Sri Ipsit Mantri",
+        "Ferdinand Mom",
+        "Atsushi Saito",
+        "Guangyu Song",
+        "Xiangru Tang",
+        "Bolun Wang",
+        "Johan S. Wind",
+        "Stanislaw Wozniak",
+        "Ruichong Zhang",
+        "Zhenyuan Zhang",
+        "Qihang Zhao",
+        "Peng Zhou",
+        "Qinghua Zhou",
+        "Jian Zhu",
+        "Rui-Jie Zhu"
+      ],
+      "categories": [
+        "cs.CL",
+        "cs.AI"
+      ],
+      "primary_category": "cs.CL"
+    },
+    {
+      "id": "http://arxiv.org/abs/2406.13362v3",
+      "title": "VisualRWKV: Exploring Recurrent Neural Networks for Visual Language Models",
+      "summary": "Visual Language Models (VLMs) have rapidly progressed with the recent success of large language models. However, there have been few attempts to incorporate efficient linear Recurrent Neural Networks (RNNs) architectures into VLMs. In this study, we introduce VisualRWKV, the first application of a linear RNN model to multimodal learning tasks, leveraging the pre-trained RWKV language model. We propose a data-dependent recurrence and sandwich prompts to enhance our modeling capabilities, along with a 2D image scanning mechanism to enrich the processing of visual sequences. Extensive experiments demonstrate that VisualRWKV achieves competitive performance compared to Transformer-based models like LLaVA-1.5 on various benchmarks. Compared to LLaVA-1.5, VisualRWKV has a speed advantage of 3.98 times and can save 54% of GPU memory when reaching an inference length of 24K tokens. To facilitate further research and analysis, we have made the checkpoints and the associated code publicly accessible at the following GitHub repository: see https://github.com/howard-hou/VisualRWKV.",
+      "published": "2024-06-19T09:07:31Z",
+      "pdf": "https://arxiv.org/pdf/2406.13362v3",
+      "authors": [
+        "Haowen Hou",
+        "Peigen Zeng",
+        "Fei Ma",
+        "Fei Richard Yu"
+      ],
+      "categories": [
+        "cs.CV",
+        "cs.CL",
+        "cs.LG"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "Accepted at COLING 2025 main conference"
+    },
+    {
+      "id": "http://arxiv.org/abs/2404.19178v2",
+      "title": "Revenge of the Fallen? Recurrent Models Match Transformers at Predicting Human Language Comprehension Metrics",
+      "summary": "Transformers have generally supplanted recurrent neural networks as the dominant architecture for both natural language processing tasks and for modelling the effect of predictability on online human language comprehension. However, two recently developed recurrent model architectures, RWKV and Mamba, appear to perform natural language tasks comparably to or better than transformers of equivalent scale. In this paper, we show that contemporary recurrent models are now also able to match - and in some cases, exceed - the performance of comparably sized transformers at modeling online human language comprehension. This suggests that transformer language models are not uniquely suited to this task, and opens up new directions for debates about the extent to which architectural features of language models make them better or worse models of human language comprehension.",
+      "published": "2024-04-30T01:02:15Z",
+      "pdf": "https://arxiv.org/pdf/2404.19178v2",
+      "authors": [
+        "James A. Michaelov",
+        "Catherine Arnett",
+        "Benjamin K. Bergen"
+      ],
+      "categories": [
+        "cs.CL"
+      ],
+      "primary_category": "cs.CL",
+      "comment": "Accepted at COLM 2024"
+    },
+    {
+      "id": "http://arxiv.org/abs/2601.19221v1",
+      "title": "DREAMSTATE: Diffusing States and Parameters for Recurrent Large Language Models",
+      "summary": "Modern Recurrent Neural Networks (RNNs), such as RWKV, are distinguished by their powerful short-range modeling capabilities and efficient fixed-size states, which constitute a core advantage over standard Transformers. However, there is a significant lack of research into their internal state as an editable knowledge representation. To fill this gap, we first explore the representational properties of the RWKV state by proposing the DREAMSTATE framework. This framework utilizes a conditional Diffusion Transformer (DiT) to directly model the probability manifold of the state, enabling its generation and editing. The structural nature of this representation is validated through t-SNE visualizations and controlled generation experiments. After successfully uncovering and modeling the state's representational potential, we further propose a novel hybrid architecture that combines the local advantages of RNNs with global context adaptability. This architecture features a parallel DiT that processes a variable-length global context to dynamically generate and adjust the core recurrent module's WKV parameters, transforming the fixed recurrence mechanism into a context-aware dynamic function. Experiments demonstrate that this hybrid model can be trained stably via a multi-objective loss, validating its design feasibility. Our work not only opens a new research direction for RNN state representation but also provides a concrete architectural reference for future model design. The code is publicly available at: https://huggingface.co/2dgx41s/DreamState.",
+      "published": "2026-01-27T05:42:25Z",
+      "pdf": "https://arxiv.org/pdf/2601.19221v1",
+      "authors": [
+        "Liu Xiao"
+      ],
+      "categories": [
+        "cs.CL"
+      ],
+      "primary_category": "cs.CL"
+    },
+    {
+      "id": "http://arxiv.org/abs/2505.13524v2",
+      "title": "Quantum-Enhanced Channel Mixing in RWKV Models for Time Series Forecasting",
+      "summary": "Recent advancements in neural sequence modeling have led to architectures such as RWKV, which combine recurrent-style time mixing with feedforward channel mixing to enable efficient long-context processing. In this work, we propose QuantumRWKV, a hybrid quantum-classical extension of the RWKV model, where the standard feedforward network (FFN) is partially replaced by a variational quantum circuit (VQC). The quantum component is designed to enhance nonlinear representational capacity while preserving end-to-end differentiability via the PennyLane framework. To assess the impact of quantum enhancements, we conduct a comparative evaluation between QuantumRWKV and its classical counterpart across ten synthetic time-series forecasting tasks, encompassing linear (ARMA), chaotic (Logistic Map), oscillatory (Damped Oscillator, Sine Wave), and regime-switching signals. Our results show that QuantumRWKV outperforms the classical model in 6 out of 10 tasks, particularly excelling in sequences with nonlinear or chaotic dynamics, such as Chaotic Logistic, Noisy Damped Oscillator, Sine Wave, Triangle Wave, Sawtooth, and ARMA. However, it underperforms on tasks involving sharp regime shifts (Piecewise Regime) or smoother periodic patterns (Damped Oscillator, Seasonal Trend, Square Wave). This study provides one of the first systematic comparisons between hybrid quantum-classical and classical recurrent models in temporal domains, highlighting the scenarios where quantum circuits can offer tangible advantages. We conclude with a discussion on architectural trade-offs, such as variance sensitivity in quantum layers, and outline future directions for scaling quantum integration in long-context temporal learning systems.",
+      "published": "2025-05-18T02:19:30Z",
+      "pdf": "https://arxiv.org/pdf/2505.13524v2",
+      "authors": [
+        "Chi-Sheng Chen",
+        "En-Jui Kuo"
+      ],
+      "categories": [
+        "quant-ph"
+      ],
+      "primary_category": "quant-ph"
+    },
+    {
+      "id": "http://arxiv.org/abs/2407.12077v1",
+      "title": "GoldFinch: High Performance RWKV/Transformer Hybrid with Linear Pre-Fill and Extreme KV-Cache Compression",
+      "summary": "We introduce GoldFinch, a hybrid Linear Attention/Transformer sequence model that uses a new technique to efficiently generate a highly compressed and reusable KV-Cache in linear time and space with respect to sequence length. GoldFinch stacks our new GOLD transformer on top of an enhanced version of the Finch (RWKV-6) architecture. We train up to 1.5B parameter class models of the Finch, Llama, and GoldFinch architectures, and find dramatically improved modeling performance relative to both Finch and Llama. Our cache size savings increase linearly with model layer count, ranging from 756-2550 times smaller than the traditional transformer cache for common sizes, enabling inference of extremely large context lengths even on limited hardware. Although autoregressive generation has O(n) time complexity per token because of attention, pre-fill computation of the entire initial cache state for a submitted context costs only O(1) time per token due to the use of a recurrent neural network (RNN) to generate this cache. We release our trained weights and training code under the Apache 2.0 license for community use.",
+      "published": "2024-07-16T18:00:00Z",
+      "pdf": "https://arxiv.org/pdf/2407.12077v1",
+      "authors": [
+        "Daniel Goldstein",
+        "Fares Obeid",
+        "Eric Alcaide",
+        "Guangyu Song",
+        "Eugene Cheah"
+      ],
+      "categories": [
+        "cs.CL",
+        "cs.AI"
+      ],
+      "primary_category": "cs.CL"
+    },
+    {
+      "id": "http://arxiv.org/abs/2502.10297v7",
+      "title": "DeltaProduct: Improving State-Tracking in Linear RNNs via Householder Products",
+      "summary": "Linear Recurrent Neural Networks (linear RNNs) have emerged as competitive alternatives to Transformers for sequence modeling, offering efficient training and linear-time inference. However, existing architectures face a fundamental trade-off between expressivity and efficiency, dictated by the structure of their state-transition matrices. Diagonal matrices, used in models such as Mamba, GLA, or mLSTM, yield fast runtime but have limited expressivity. To address this, recent architectures such as DeltaNet and RWKV-7 adopted a diagonal plus rank--1 structure, which allows simultaneous token and channel mixing, improving associative recall and, as recently shown, state-tracking when allowing state-transition matrices to have negative eigenvalues. Building on the interpretation of DeltaNet's recurrence as performing one step of online gradient descent per token on an associative recall loss, we introduce DeltaProduct, which instead takes multiple ($n_h$) steps per token. This naturally leads to diagonal plus rank--$n_h$ state-transition matrices, formed as products of $n_h$ generalized Householder transformations, providing a tunable mechanism to balance expressivity and efficiency. We provide a detailed theoretical characterization of the state-tracking capability of DeltaProduct in finite precision, showing how it improves by increasing $n_h$. Our extensive experiments demonstrate that DeltaProduct outperforms DeltaNet in both state-tracking and language modeling, while also showing significantly improved length extrapolation capabilities.",
+      "published": "2025-02-14T16:59:05Z",
+      "pdf": "https://arxiv.org/pdf/2502.10297v7",
+      "authors": [
+        "Julien Siems",
+        "Timur Carstensen",
+        "Arber Zela",
+        "Frank Hutter",
+        "Massimiliano Pontil",
+        "Riccardo Grazzi"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.CL",
+        "cs.FL"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "v5: Characterization of DeltaProduct's state-tracking ability. Analysis of hidden state's effective rank. Improved scaling analysis. v6: Added analysis for products of RWKV-7 matrices, v6: Accepted at NeurIPS 2025"
+    },
+    {
+      "id": "http://arxiv.org/abs/2504.19191v1",
+      "title": "WuNeng: Hybrid State with Attention",
+      "summary": "The WuNeng architecture introduces a novel approach to enhancing the expressivity and power of large language models by integrating recurrent neural network (RNN)-based RWKV-7 with advanced attention mechanisms, prioritizing heightened contextual coherence over reducing KV cache size. Building upon the hybrid-head concept from Hymba, WuNeng augments standard multi-head attention with additional RWKV-7 state-driven heads, rather than replacing existing heads, to enrich the model's representational capacity. A cross-head interaction technique fosters dynamic synergy among standard, state-driven, and newly introduced middle heads, leveraging concatenation, additive modulation, and gated fusion for robust information integration. Furthermore, a multi-token state processing mechanism harnesses the continuous RWKV-7 state to capture intricate, sequence-wide dependencies, significantly boosting expressivity. Remarkably, these enhancements are achieved with minimal additional parameters, ensuring efficiency while empowering the model to excel in complex reasoning and sequence generation tasks. WuNeng sets a new standard for balancing expressivity and computational efficiency in modern neural architectures.",
+      "published": "2025-04-27T10:48:56Z",
+      "pdf": "https://arxiv.org/pdf/2504.19191v1",
+      "authors": [
+        "Liu Xiao",
+        "Li Zhiyuan",
+        "Lin Yueyu"
+      ],
+      "categories": [
+        "cs.CL"
+      ],
+      "primary_category": "cs.CL"
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "query": "all:diffusion+recurrent+neural+network+generative",
+  "total": 0,
+  "results": [
+    {
+      "id": "http://arxiv.org/abs/2407.16477v2",
+      "title": "qMRI Diffuser: Quantitative T1 Mapping of the Brain using a Denoising Diffusion Probabilistic Model",
+      "summary": "Quantitative MRI (qMRI) offers significant advantages over weighted images by providing objective parameters related to tissue properties. Deep learning-based methods have demonstrated effectiveness in estimating quantitative maps from series of weighted images. In this study, we present qMRI Diffuser, a novel approach to qMRI utilising deep generative models. Specifically, we implemented denoising diffusion probabilistic models (DDPM) for T1 quantification in the brain, framing the estimation of quantitative maps as a conditional generation task. The proposed method is compared with the residual neural network (ResNet) and the recurrent inference machine (RIM) on both phantom and in vivo data. The results indicate that our method achieves improved accuracy and precision in parameter estimation, along with superior visual performance. Moreover, our method inherently incorporates stochasticity, enabling straightforward quantification of uncertainty. Hence, the proposed method holds significant promise for quantitative MR mapping.",
+      "published": "2024-07-23T13:49:19Z",
+      "pdf": "https://arxiv.org/pdf/2407.16477v2",
+      "authors": [
+        "Shishuai Wang",
+        "Hua Ma",
+        "Juan A. Hernandez-Tamames",
+        "Stefan Klein",
+        "Dirk H. J. Poot"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "Accepted by Deep Generative Models workshop at MICCAI 2024"
+    },
+    {
+      "id": "http://arxiv.org/abs/2305.16862v1",
+      "title": "Neural modeling of magnetic tape recorders",
+      "summary": "The sound of magnetic recording media, such as open-reel and cassette tape recorders, is still sought after by today's sound practitioners due to the imperfections embedded in the physics of the magnetic recording process. This paper proposes a method for digitally emulating this character using neural networks. The signal chain of the proposed system consists of three main components: the hysteretic nonlinearity and filtering jointly produced by the magnetic recording process as well as the record and playback amplifiers, the fluctuating delay originating from the tape transport, and the combined additive noise component from various electromagnetic origins. In our approach, the hysteretic nonlinear block is modeled using a recurrent neural network, while the delay trajectories and the noise component are generated using separate diffusion models, which employ U-net deep convolutional neural networks. According to the conducted objective evaluation, the proposed architecture faithfully captures the character of the magnetic tape recorder. The results of this study can be used to construct virtual replicas of vintage sound recording devices with applications in music production and audio antiquing tasks.",
+      "published": "2023-05-26T12:15:11Z",
+      "pdf": "https://arxiv.org/pdf/2305.16862v1",
+      "authors": [
+        "Otto Mikkonen",
+        "Alec Wright",
+        "Eloi Moliner",
+        "Vesa V\u00e4lim\u00e4ki"
+      ],
+      "categories": [
+        "eess.AS",
+        "cs.LG",
+        "cs.SD"
+      ],
+      "primary_category": "eess.AS",
+      "comment": "Accepted to DAFx 2023. For accompanying web page, see http://research.spa.aalto.fi/publications/papers/dafx23-neural-tape/"
+    },
+    {
+      "id": "http://arxiv.org/abs/2602.14885v2",
+      "title": "Drift-Diffusion Matching: Embedding dynamics in latent manifolds of asymmetric neural networks",
+      "summary": "Recurrent neural networks (RNNs) provide a theoretical framework for understanding computation in biological neural circuits, yet classical results, such as Hopfield's model of associative memory, rely on symmetric connectivity that restricts network dynamics to gradient-like flows. In contrast, biological networks support rich time-dependent behaviour facilitated by their asymmetry. Here we introduce a general framework, which we term drift-diffusion matching, for training continuous-time RNNs to represent arbitrary, nonlinear stochastic differential equations (SDEs), with given drift and diffusion coefficients, within a low-dimensional latent subspace. Allowing asymmetric connectivity, we show that RNNs can faithfully embed the drift and diffusion of a given SDE, including nonlinear and nonequilibrium dynamics such as chaotic attractors. As an application, we construct RNN realisations of stochastic systems that transiently explore various attractors through both input-driven switching and autonomous transitions driven by nonequilibrium currents, which we interpret as models of associative and sequential (episodic) memory. To elucidate how these dynamics are encoded in the network, we introduce decompositions of the RNN based on its asymmetric connectivity and its time-irreversibility. Our results extend attractor neural network theory beyond equilibrium, showing that asymmetric neural populations can implement a broad class of dynamical computations within low-dimensional manifolds, unifying ideas from associative memory, nonequilibrium statistical mechanics, and neural computation.",
+      "published": "2026-02-16T16:15:59Z",
+      "pdf": "https://arxiv.org/pdf/2602.14885v2",
+      "authors": [
+        "Ram\u00f3n Nartallo-Kaluarachchi",
+        "Renaud Lambiotte",
+        "Alain Goriely"
+      ],
+      "categories": [
+        "cond-mat.dis-nn",
+        "cond-mat.stat-mech",
+        "cs.LG",
+        "q-bio.NC"
+      ],
+      "primary_category": "cond-mat.dis-nn",
+      "comment": "25 pages, 16 figures"
+    },
+    {
+      "id": "http://arxiv.org/abs/1601.04114v2",
+      "title": "Training Recurrent Neural Networks by Diffusion",
+      "summary": "This work presents a new algorithm for training recurrent neural networks (although ideas are applicable to feedforward networks as well). The algorithm is derived from a theory in nonconvex optimization related to the diffusion equation. The contributions made in this work are two fold. First, we show how some seemingly disconnected mechanisms used in deep learning such as smart initialization, annealed learning rate, layerwise pretraining, and noise injection (as done in dropout and SGD) arise naturally and automatically from this framework, without manually crafting them into the algorithms. Second, we present some preliminary results on comparing the proposed method against SGD. It turns out that the new algorithm can achieve similar level of generalization accuracy of SGD in much fewer number of epochs.",
+      "published": "2016-01-16T02:24:17Z",
+      "pdf": "https://arxiv.org/pdf/1601.04114v2",
+      "authors": [
+        "Hossein Mobahi"
+      ],
+      "categories": [
+        "cs.LG"
+      ],
+      "primary_category": "cs.LG"
+    },
+    {
+      "id": "http://arxiv.org/abs/2406.07169v2",
+      "title": "RDM: Recurrent Diffusion Model for Human Motion Generation",
+      "summary": "Human motion generation is a challenging task due to its high dimensionality and the difficulty of generating fine-grained motions. Diffusion methods have been proposed due to their high sample quality and expressiveness. Early approaches treat the entire sequence as a whole, which is computationally expensive and restricts sequence length. In contrast, autoregressive diffusion models generate longer sequences. However, their reliance on fully denoising previous frames complicates training and inference. Consequently, we propose \\textit{RDM}, a new recurrent diffusion formulation similar to Recurrent Neural Networks (RNNs).RDMs explicitly condition diffusion processes on preceding noisy frames, avoiding the cost of full denoising. Nonetheless, maintaining its probabilistic nature is non-trivial. Therefore, we employ Normalizing Flows to model recurrent connections. Our evaluations demonstrate RDM's effectiveness: it achieves comparable performance to autoregressive baselines and generates long sequences that remain aligned with the text. RDM also skips diffusion steps during inference, significantly reducing computational cost.",
+      "published": "2024-06-11T11:25:37Z",
+      "pdf": "https://arxiv.org/pdf/2406.07169v2",
+      "authors": [
+        "Mirgahney Mohamed",
+        "Harry Jake Cunningham",
+        "Marc P. Deisenroth",
+        "Lourdes Agapito"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV",
+      "comment": "v2: Major revision with extensive text polishing and structural updates. Added new experiments on the rollout effect, specifically analyzing the trade-offs between compute time and sequence length. Includes several new visualizations (Figures 6, 9, 10) and an expanded discussion in Section 4"
+    },
+    {
+      "id": "http://arxiv.org/abs/2501.11587v2",
+      "title": "Recurrent Diffusion for Large-Scale Parameter Generation",
+      "summary": "Parameter generation has long struggled to match the scale of today large vision and language models, curbing its broader utility. In this paper, we introduce Recurrent Diffusion for Large Scale Parameter Generation (RPG), a novel framework that generates full neural network parameters up to hundreds of millions on a single GPU. Our approach first partitions a networks parameters into non-overlapping tokens, each corresponding to a distinct portion of the model. A recurrent mechanism then learns the inter token relationships, producing prototypes which serve as conditions for a diffusion process that ultimately synthesizes the full parameters. Across a spectrum of architectures and tasks including ResNets, ConvNeXts and ViTs on ImageNet 1K and COCO, and even LoRA based LLMs RPG achieves performance on par with fully trained networks while avoiding excessive memory overhead. Notably, it generalizes beyond its training set to generate valid parameters for previously unseen tasks, highlighting its flexibility in dynamic and open ended scenarios. By overcoming the longstanding memory and scalability barriers, RPG serves as a critical advance in AI generating AI, potentially enabling efficient weight generation at scales previously deemed infeasible.",
+      "published": "2025-01-20T16:46:26Z",
+      "pdf": "https://arxiv.org/pdf/2501.11587v2",
+      "authors": [
+        "Kai Wang",
+        "Dongwen Tang",
+        "Wangbo Zhao",
+        "Konstantin Sch\u00fcrholt",
+        "Zhangyang Wang",
+        "Yang You"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.AI"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "Generating 200 million parameters in just minutes"
+    },
+    {
+      "id": "http://arxiv.org/abs/2409.11684v2",
+      "title": "Recurrent Interpolants for Probabilistic Time Series Prediction",
+      "summary": "Sequential models like recurrent neural networks and transformers have become standard for probabilistic multivariate time series forecasting across various domains. Despite their strengths, they struggle with capturing high-dimensional distributions and cross-feature dependencies. Recent work explores generative approaches using diffusion or flow-based models, extending to time series imputation and forecasting. However, scalability remains a challenge. This work proposes a novel method combining recurrent neural networks' efficiency with diffusion models' probabilistic modeling, based on stochastic interpolants and conditional generation with control features, offering insights for future developments in this dynamic field.",
+      "published": "2024-09-18T03:52:48Z",
+      "pdf": "https://arxiv.org/pdf/2409.11684v2",
+      "authors": [
+        "Yu Chen",
+        "Marin Bilo\u0161",
+        "Sarthak Mittal",
+        "Wei Deng",
+        "Kashif Rasul",
+        "Anderson Schneider"
+      ],
+      "categories": [
+        "cs.LG",
+        "stat.ML"
+      ],
+      "primary_category": "cs.LG"
+    },
+    {
+      "id": "http://arxiv.org/abs/2504.09761v1",
+      "title": "Dynamical symmetries in the fluctuation-driven regime: an application of Noether's theorem to noisy dynamical systems",
+      "summary": "Noether's theorem provides a powerful link between continuous symmetries and conserved quantities for systems governed by some variational principle. Perhaps unfortunately, most dynamical systems of interest in neuroscience and artificial intelligence cannot be described by any such principle. On the other hand, nonequilibrium physics provides a variational principle that describes how fairly generic noisy dynamical systems are most likely to transition between two states; in this work, we exploit this principle to apply Noether's theorem, and hence learn about how the continuous symmetries of dynamical systems constrain their most likely trajectories. We identify analogues of the conservation of energy, momentum, and angular momentum, and briefly discuss examples of each in the context of models of decision-making, recurrent neural networks, and diffusion generative models.",
+      "published": "2025-04-13T23:56:31Z",
+      "pdf": "https://arxiv.org/pdf/2504.09761v1",
+      "authors": [
+        "John J. Vastola"
+      ],
+      "categories": [
+        "cs.LG",
+        "cond-mat.stat-mech"
+      ],
+      "primary_category": "cs.LG",
+      "comment": "Accepted to the NeurIPS 2024 Workshop on Symmetry and Geometry in Neural Representations (NeurReps)"
+    },
+    {
+      "id": "http://arxiv.org/abs/2511.12940v1",
+      "title": "Recurrent Autoregressive Diffusion: Global Memory Meets Local Attention",
+      "summary": "Recent advancements in video generation have demonstrated the potential of using video diffusion models as world models, with autoregressive generation of infinitely long videos through masked conditioning. However, such models, usually with local full attention, lack effective memory compression and retrieval for long-term generation beyond the window size, leading to issues of forgetting and spatiotemporal inconsistencies. To enhance the retention of historical information within a fixed memory budget, we introduce a recurrent neural network (RNN) into the diffusion transformer framework. Specifically, a diffusion model incorporating LSTM with attention achieves comparable performance to state-of-the-art RNN blocks, such as TTT and Mamba2. Moreover, existing diffusion-RNN approaches often suffer from performance degradation due to training-inference gap or the lack of overlap across windows. To address these limitations, we propose a novel Recurrent Autoregressive Diffusion (RAD) framework, which executes frame-wise autoregression for memory update and retrieval, consistently across training and inference time. Experiments on Memory Maze and Minecraft datasets demonstrate the superiority of RAD for long video generation, highlighting the efficiency of LSTM in sequence modeling.",
+      "published": "2025-11-17T03:47:12Z",
+      "pdf": "https://arxiv.org/pdf/2511.12940v1",
+      "authors": [
+        "Taiye Chen",
+        "Zihan Ding",
+        "Anjian Li",
+        "Christina Zhang",
+        "Zeqi Xiao",
+        "Yisen Wang",
+        "Chi Jin"
+      ],
+      "categories": [
+        "cs.CV"
+      ],
+      "primary_category": "cs.CV"
+    },
+    {
+      "id": "http://arxiv.org/abs/1704.06803v1",
+      "title": "Geometric Matrix Completion with Recurrent Multi-Graph Neural Networks",
+      "summary": "Matrix completion models are among the most common formulations of recommender systems. Recent works have showed a boost of performance of these techniques when introducing the pairwise relationships between users/items in the form of graphs, and imposing smoothness priors on these graphs. However, such techniques do not fully exploit the local stationarity structures of user/item graphs, and the number of parameters to learn is linear w.r.t. the number of users and items. We propose a novel approach to overcome these limitations by using geometric deep learning on graphs. Our matrix completion architecture combines graph convolutional neural networks and recurrent neural networks to learn meaningful statistical graph-structured patterns and the non-linear diffusion process that generates the known ratings. This neural network system requires a constant number of parameters independent of the matrix size. We apply our method on both synthetic and real datasets, showing that it outperforms state-of-the-art techniques.",
+      "published": "2017-04-22T14:02:01Z",
+      "pdf": "https://arxiv.org/pdf/1704.06803v1",
+      "authors": [
+        "Federico Monti",
+        "Michael M. Bronstein",
+        "Xavier Bresson"
+      ],
+      "categories": [
+        "cs.LG",
+        "cs.IR",
+        "math.NA",
+        "stat.ML"
+      ],
+      "primary_category": "cs.LG"
+    }
+  ]
+}

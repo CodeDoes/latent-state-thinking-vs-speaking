@@ -93,3 +93,7 @@ patch boundary is a known junction in the computation graph. A
 point for a new block in the rapid-expansion frame: every patch is its
 own scope, so surgically inserting a new block at the right patch is
 local surgery, not global surgery.
+
+---
+
+**Research links:** [`research/byte_level_models.md`](../research/byte_level_models.md) — BLT paper analysis, MambaByte, dynamic patching approaches.
