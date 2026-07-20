@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from typing import Optional
 
 from src.rwkv_nano import RWKV7Block, count_params
+from minGRU_pytorch import minGRU
 
 BYTE_VOCAB_SIZE = 258
 BYTE_PAD = 0
@@ -38,43 +39,45 @@ class AccumulatorCell(nn.Module):
     - A trigger probability (should we emit now or keep reading?)
     """
 
-    def __init__(self, dim: int, world_vocab: int):
+    def __init__(self, dim: int, world_vocab: int, head_size: int = 64):
         super().__init__()
         self.dim = dim
 
         # Byte embedding
         self.byte_embed = nn.Embedding(BYTE_VOCAB_SIZE, dim, padding_idx=BYTE_PAD)
 
-        # State update: RWKV-7 block acting as a recurrent cell
-        self.cell = RWKV7Block(dim)
+        # State update: minGRU acting as a recurrent cell
+        self.cell = minGRU(dim)
 
         # Trigger head: decide when to emit
         self.trigger_head = nn.Linear(dim, 1)
 
         # Token head: predict which world token to emit
-        self.token_head = nn.Linear(dim, world_vocab, bias=False)
+        # Small bottleneck dim to keep params low
+        self.bottleneck_dim = 32
+        self.token_proj = nn.Linear(dim, self.bottleneck_dim)
+        self.token_head = nn.Linear(self.bottleneck_dim, world_vocab, bias=False)
 
-    def forward(self, byte_id: torch.Tensor, state: dict):
+    def forward(self, byte_id: torch.Tensor, prev_hidden: torch.Tensor = None):
         """One step: read a byte, update state, output trigger + token logits.
+
+        Returns trigger as raw logits (pre-sigmoid) for numerical stability
+        with binary_cross_entropy_with_logits.
 
         Args:
             byte_id: (B,) byte token IDs
-            state: dict with 'xx' (B, dim) and 'state' (B, H, N, N)
+            prev_hidden: (B, 1, dim) previous hidden or None
         Returns:
             logits: (B, world_vocab) candidate token logits
-            trigger: (B,) trigger probability (0=keep reading, 1=emit now)
-            new_state: updated state dict
+            trigger_logits: (B,) raw trigger logits (pre-sigmoid)
+            new_hidden: (B, 1, dim) updated hidden
         """
-        B = byte_id.shape[0]
-        # Embed byte and reshape for RWKVBlock (expects B, T, dim)
         x = self.byte_embed(byte_id).unsqueeze(1)  # (B, 1, dim)
-        x, new_state, _ = self.cell(x, state)
-
-        x = x.squeeze(1)  # (B, dim)
-        logits = self.token_head(x)  # (B, world_vocab)
-        trigger = torch.sigmoid(self.trigger_head(x))  # (B,)
-
-        return logits, trigger, new_state
+        x, new_hidden = self.cell(x, prev_hidden, return_next_prev_hidden=True)
+        h = x.squeeze(1)
+        logits = self.token_head(self.token_proj(h))  # (B, world_vocab)
+        trigger_logits = self.trigger_head(h).squeeze(-1)  # (B,)
+        return logits, trigger_logits, new_hidden
 
 
 class LoopyTokenizer(nn.Module):
@@ -90,13 +93,13 @@ class LoopyTokenizer(nn.Module):
     straight-through) for differentiability. During inference, it's hard.
     """
 
-    def __init__(self, dim: int, world_vocab: int, trigger_bias: float = -2.0):
+    def __init__(self, dim: int, world_vocab: int, trigger_bias: float = -2.0, head_size: int = 64):
         super().__init__()
         self.dim = dim
         self.world_vocab = world_vocab
 
         # The accumulator cell — one per potential token position
-        self.cell = AccumulatorCell(dim, world_vocab)
+        self.cell = AccumulatorCell(dim, world_vocab, head_size)
 
         # Bias trigger toward keeping-reading initially
         self.trigger_bias = nn.Parameter(torch.tensor(trigger_bias))
@@ -105,62 +108,29 @@ class LoopyTokenizer(nn.Module):
         self, byte_ids: torch.Tensor,
         target_tokens: Optional[list[list[int]]] = None,
     ) -> tuple[torch.Tensor, dict]:
-        """Emulate tokenizer: read bytes, emit tokens via adaptive triggering.
-
-        During training, if target_tokens is provided, the trigger decisions
-        are supervised by the known token boundaries. During inference, the
-        model decides autonomously.
-
-        Args:
-            byte_ids: (B, T_bytes) byte token IDs
-            target_tokens: optional list of B lists of target token IDs
-                          (from the real tokenizer) for supervision
-        Returns:
-            emitted_tokens: (B, max_tokens) token IDs emitted
-            info: dict with trigger counts, losses
-        """
+        """Emulate tokenizer: read bytes, emit tokens via adaptive triggering."""
         B, T = byte_ids.shape
         device = byte_ids.device
-        H = self.cell.cell.n_head
-        N = self.cell.cell.head_size
 
-        # Initialize accumulator state
-        acc_state = {
-            'xx': torch.zeros(B, self.dim, device=device),
-            'state': torch.zeros(B, H, N, N, device=device),
-        }
-
+        acc_hidden = None
         emitted = []
         trigger_logs = []
         token_logits_list = []
 
         for t in range(T):
-            byte_t = byte_ids[:, t]  # (B,)
-
-            # Skip padding
+            byte_t = byte_ids[:, t]
             is_pad = (byte_t == BYTE_PAD)
             if is_pad.all():
                 break
 
-            # Read byte → update accumulator
-            logits, trigger, acc_state = self.cell(byte_t, acc_state)
+            logits, trigger, acc_hidden = self.cell(byte_t, acc_hidden)
             token_logits_list.append(logits)
-
-            # Trigger decision
-            trigger = trigger + self.trigger_bias  # apply bias
-            triggered = trigger > 0.0  # (B,) hard decision for now
+            trigger = trigger + self.trigger_bias
+            triggered = trigger > 0.0
             trigger_logs.append(trigger)
 
-            # When triggered, emit the predicted token and reset state for this sample
-            # For now: emit at every byte (simplest case = byte-level tokens)
-            # Later: learn when to trigger based on token boundaries
-
-        # Simplest case: emit one token per byte (byte-level tokenization)
-        # This gives us a working baseline before learning trigger boundaries
-        token_logits = torch.stack(token_logits_list, dim=1)  # (B, T, V)
-        emitted_tokens = token_logits.argmax(dim=-1)  # (B, T)
-
-        # Zero out padding positions
+        token_logits = torch.stack(token_logits_list, dim=1)
+        emitted_tokens = token_logits.argmax(dim=-1)
         pad_mask = (byte_ids == BYTE_PAD)
         emitted_tokens = emitted_tokens.masked_fill(pad_mask, WORLD_PAD_ID)
 
@@ -170,6 +140,50 @@ class LoopyTokenizer(nn.Module):
         }
 
         return emitted_tokens, info
+
+
+class AccumulatorCellWithPos(AccumulatorCell):
+    """AccumulatorCell that also takes a position (0..255) as input.
+
+    Position encoding helps the cell learn token boundaries by making
+    byte position directly accessible, rather than relying solely on
+    the recurrent state to encode position information.
+    """
+    def __init__(self, dim, world_vocab, head_size=64):
+        super().__init__(dim, world_vocab, head_size)
+        self.pos_embed = nn.Embedding(256, dim)
+
+    def forward(self, byte_id, pos, prev_hidden=None):
+        byte_emb = self.byte_embed(byte_id).unsqueeze(1)  # (B, 1, dim)
+        pos_emb = self.pos_embed(pos)                      # (B, L, dim)
+        x = byte_emb + pos_emb
+        x, new_hidden = self.cell(x, prev_hidden, return_next_prev_hidden=True)
+        h = x.squeeze(1)
+        logits = self.token_head(self.token_proj(h))
+        trigger_logits = self.trigger_head(h).squeeze(-1)  # (B,)
+        return logits, trigger_logits, new_hidden
+
+
+class LoopyTokenizerWithPos(LoopyTokenizer):
+    """LoopyTokenizer that feeds byte position into the cell."""
+    def __init__(self, dim, world_vocab, trigger_bias=-2.0, head_size=64):
+        super().__init__(dim, world_vocab, trigger_bias, head_size)
+        self.cell = AccumulatorCellWithPos(dim, world_vocab, head_size)
+
+    def forward_bytes(self, byte_ids):
+        """byte_ids: (B, T) → token_logits (B, T, V), triggers (B, T)"""
+        B, T = byte_ids.shape
+        device = byte_ids.device
+        acc_hidden = None
+        logits_list, trig_list = [], []
+        for t in range(T):
+            pos = torch.full((B, 1), min(t, 255), device=device, dtype=torch.long)
+            logits, trigger, acc_hidden = self.cell(byte_ids[:, t], pos, acc_hidden)
+            logits_list.append(logits)
+            trig_list.append(trigger)
+        token_logits = torch.stack(logits_list, dim=1)   # (B, T, V)
+        trigger_logits = torch.stack(trig_list, dim=1) + self.trigger_bias  # (B, T)
+        return token_logits, trigger_logits
 
 
 class FrozenModelWithLoopyFront(nn.Module):
