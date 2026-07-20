@@ -19,7 +19,7 @@ DEVICE = "cuda"
 DIM = 128
 LATENT_DIM = 256
 LR = 3e-3
-BATCH = 128
+BATCH = 64
 MAX_TOKEN_LEN = 80
 LOG_EVERY = 50
 SAVE_EVERY = 500
@@ -40,41 +40,53 @@ print(f"Stories: {len(stories):,}", flush=True)
 
 device = torch.device(DEVICE)
 
-# ── Extract all tokens from stories ──
-# Group by length, pad to MAX_TOKEN_LEN
-tokens_by_len = {}
-for si, s in enumerate(stories[:500]):
-    if si % 100 == 0: print(f"  processing story {si}/{500}", flush=True)
-    raw = s.encode("utf-8")[:4096]
-    idx = 0
-    while idx < len(raw):
-        old = idx
-        idx, node, values = tok.root.find_longest(raw, idx)
-        if idx == old: idx += 1; continue
-        _, tid = next(iter(values))
-        L = idx - old
-        if L > MAX_TOKEN_LEN: continue
-        tokens_by_len.setdefault(L, []).append(bytes(raw[old:idx]))
+# ── Extract all tokens from stories (with caching) ──
+CACHE_PATH = "experiments/auto_tokenizer/dataset.pt"
+cache = Path(CACHE_PATH)
+if cache.exists():
+    items_by_len = torch.load(cache, map_location='cpu')
+    items_by_len = {k: (v[0].to(device), v[1].to(device)) for k, v in items_by_len.items()}
+    total = sum(v[0].shape[0] for v in items_by_len.values())
+    print(f"Loaded cached dataset: {total:,} tokens, {len(items_by_len)} groups", flush=True)
+else:
+    tokens_by_len = {}
+    for si, s in enumerate(stories[:500]):
+        if si % 100 == 0: print(f"  processing story {si}/{500}", flush=True)
+        raw = s.encode("utf-8")[:4096]
+        idx = 0
+        while idx < len(raw):
+            old = idx
+            idx, node, values = tok.root.find_longest(raw, idx)
+            if idx == old: idx += 1; continue
+            _, tid = next(iter(values))
+            L = idx - old
+            if L > MAX_TOKEN_LEN: continue
+            tokens_by_len.setdefault(L, []).append(bytes(raw[old:idx]))
 
-print(f"Token lengths: {sorted(tokens_by_len.keys())}", flush=True)
-total = sum(len(v) for v in tokens_by_len.values())
-print(f"Total tokens: {total:,}", flush=True)
+    print(f"Token lengths: {sorted(tokens_by_len.keys())}", flush=True)
+    total = sum(len(v) for v in tokens_by_len.values())
+    print(f"Total tokens: {total:,}", flush=True)
 
-# Build padded tensors per length
-items_by_len = {}
-for L, token_list in tokens_by_len.items():
-    N = len(token_list)
-    byte_mat = torch.zeros(N, L, dtype=torch.long, device=device)
-    trig_target = torch.zeros(N, L, device=device)
-    for i, token_bytes in enumerate(token_list):
-        for j, b in enumerate(token_bytes):
-            byte_mat[i, j] = 2 + b
-        # Smooth trigger ramp: 0→1 from first to last byte
-        for j in range(L):
-            trig_target[i, j] = (j + 1) / L  # linear from ~0 to 1
-    items_by_len[L] = (byte_mat, trig_target)
+    items_by_len = {}
+    for L, token_list in tokens_by_len.items():
+        N = len(token_list)
+        # Build on CPU then move to GPU
+        byte_mat = torch.zeros(N, MAX_TOKEN_LEN, dtype=torch.long)
+        trig_target = torch.zeros(N, MAX_TOKEN_LEN)
+        # Vectorized: batch all tokens of same length
+        for i, token_bytes in enumerate(token_list):
+            for j, b in enumerate(token_bytes):
+                byte_mat[i, j] = 2 + b
+        # Trigger ramp done in one shot per row
+        ramp = 1.0 - torch.arange(L, dtype=torch.float) / L  # (L,)
+        trig_target[:, :L] = ramp.unsqueeze(0)
+        items_by_len[L] = (byte_mat.to(device), trig_target.to(device))
 
-print(f"Groups: {len(items_by_len)}", flush=True)
+    print(f"Groups: {len(items_by_len)}", flush=True)
+    Path(CACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    cpu_items = {k: (v[0].cpu(), v[1].cpu()) for k, v in items_by_len.items()}
+    torch.save(cpu_items, CACHE_PATH)
+    print(f"Cached to {CACHE_PATH}", flush=True)
 
 # ── Architecture ──
 
@@ -130,30 +142,41 @@ t0 = time.time()
 step = 0
 
 for epoch in range(EPOCHS):
-    lengths = list(items_by_len.keys())
-    random.shuffle(lengths)
+    # Train longest tokens first (hardest examples → most signal)
+    lengths = sorted(items_by_len.keys(), reverse=True)
     
     for L in lengths:
         byte_mat, trig_target = items_by_len[L]
         N = byte_mat.shape[0]
+        idxs = list(range(N))
+        random.shuffle(idxs)
         
         for bstart in range(0, N, BATCH):
-            batch_bytes = byte_mat[bstart:bstart + BATCH]
-            batch_trig = trig_target[bstart:bstart + BATCH]
+            batch_idx = idxs[bstart:bstart + BATCH]
+            batch_bytes = byte_mat[batch_idx]
+            batch_trig = trig_target[batch_idx]
             bb = batch_bytes.shape[0]
             
-            # Encode
-            latent, trigger_logits = enc(batch_bytes)  # (B, T, LD), (B, T)
+            latent, trigger_logits = enc(batch_bytes)
             
-            # Trigger loss: smooth ramp
-            trig_loss = F.binary_cross_entropy_with_logits(trigger_logits, batch_trig)
+            # Trigger loss: only over actual token bytes (positions where byte>0)
+            mask = (batch_bytes > 0).float()
+            trig_loss = F.binary_cross_entropy_with_logits(
+                trigger_logits, batch_trig, reduction='none'
+            )
+            trig_loss = (trig_loss * mask).sum() / (mask.sum() + 1e-8)
             
-            # Decode: teacher-forced byte prediction
-            # Use latent at trigger position (last byte = best context)
-            latent_last = latent[:, -1:]  # (B, 1, LD)
-            byte_logits = dec(latent_last, batch_bytes)  # (B, T, 258)
+            # Decode: use latent at last real byte position
+            # Find last non-pad byte for each item
+            last_pos = (batch_bytes > 0).sum(dim=1) - 1
+            latent_last = latent[torch.arange(bb, device=device), last_pos].unsqueeze(1)  # (B, 1, LD)
+            byte_logits = dec(latent_last, batch_bytes)
             
-            byte_loss = F.cross_entropy(byte_logits.view(-1, BYTE_VOCAB), batch_bytes.view(-1))
+            # Byte loss: only over actual token bytes
+            byte_loss = F.cross_entropy(
+                byte_logits.view(-1, BYTE_VOCAB), batch_bytes.view(-1), reduction='none'
+            ).view_as(mask)
+            byte_loss = (byte_loss * mask).sum() / (mask.sum() + 1e-8)
             
             loss = byte_loss + trig_loss
             loss.backward()
@@ -165,8 +188,8 @@ for epoch in range(EPOCHS):
             if step % LOG_EVERY == 0:
                 sps = step / (time.time() - t0)
                 with torch.no_grad():
-                    acc = (byte_logits.argmax(-1) == batch_bytes).float().mean().item()
-                avg_trig = torch.sigmoid(trigger_logits[:, -1]).mean().item()
+                    acc = ((byte_logits.argmax(-1) == batch_bytes) * mask).sum().item() / (mask.sum().item() + 1e-8)
+                avg_trig = torch.sigmoid(trigger_logits[torch.arange(bb), last_pos]).mean().item()
                 print(f"step {step:5d}  e{epoch}  L={L:2d}  byte={byte_loss.item():.3f}  "
                       f"trig={trig_loss.item():.3f}  acc={acc:.3f}  last_trig={avg_trig:.2f}  {sps:.1f} st/s",
                       flush=True)
