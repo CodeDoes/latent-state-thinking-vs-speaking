@@ -10,9 +10,10 @@ normalized, projected to dim. Padding is just value 0 like any byte
 
 Output is a tuple (state, mask):
   state: (B, 2560) time-mix state (tm_out)
-  mask:  (B, 24/8=3) per-group mask over the 24 byte positions,
-         grouped into 3 groups of 8 (trained toward a step function at
-         num_bytes via BCE)."""
+  mask:  (B, 24) per-position logit. At inference, split before the first
+         position where sigmoid(mask) > threshold (see find_split) — i.e.
+         the token boundary is found by thresholding, not by fixed bins.
+         Trained toward a step function at num_bytes (1 before, 0 after)."""
 import torch, torch.nn.functional as F, time
 from pathlib import Path
 import sys; sys.path.insert(0, '.')
@@ -34,15 +35,14 @@ device = torch.device(DEVICE)
 
 # ── Encoder ──
 class ByteTimeMixEncoder(nn.Module):
-    def __init__(self, dim=256, max_bytes=24, mask_groups=3):
+    def __init__(self, dim=256, max_bytes=24):
         super().__init__()
         # Raw uint8[24]: each byte is a scalar in 0..255 -> dim.
         self.byte_proj = nn.Linear(1, dim)
         self.pos = nn.Embedding(max_bytes, dim)
         self.gru = minGRU(dim)
         self.out = nn.Linear(dim, 2560)          # state head (from last pos)
-        self.mask_head = nn.Linear(dim, 1)       # per-position mask logit
-        self.mask_groups = mask_groups
+        self.mask_head = nn.Linear(dim, 1)       # per-position mask logit (B, T)
     def forward(self, byte_ids):
         # byte_ids: (B, T) with values (2 + b); recover true uint8, normalize.
         B, T = byte_ids.shape
@@ -52,10 +52,25 @@ class ByteTimeMixEncoder(nn.Module):
         x = x + self.pos(pos)
         h = self.gru(x)                                     # (B, T, dim)
         state = self.out(h[:, -1])                          # (B, 2560)
-        # mask: per-position logit -> group 24 positions into mask_groups of 8
-        m = self.mask_head(h).view(B, T, 1)                 # (B, T, 1)
-        m = m.view(B, self.mask_groups, T // self.mask_groups).mean(dim=-1)  # (B, 3)
-        return state, m
+        mask = self.mask_head(h).squeeze(-1)                # (B, T) per-position logit
+        return state, mask
+
+
+def find_split(mask_logits, threshold=0.5):
+    """Split position = first index where sigmoid(mask) > threshold.
+
+    Returns (B,) long tensor of split points (clamped to T if none exceed).
+    The token's bytes are byte_ids[:, :split]; the boundary byte is the one
+    at `split` (i.e. split *before* the first position exceeding threshold).
+    """
+    B, T = mask_logits.shape
+    active = torch.sigmoid(mask_logits) > threshold          # (B, T) bool
+    # first True per row; if none, default to T (whole window)
+    idx = torch.full((B,), T, dtype=torch.long, device=mask_logits.device)
+    first = active.float().argmax(dim=1)                    # first 1 (or 0 if none)
+    has = active.any(dim=1)
+    idx[has] = first[has]
+    return idx
 
 # ── Load data ──
 files = sorted(DATA_DIR.glob("story_*.pt"))
@@ -94,7 +109,7 @@ opt = torch.optim.AdamW(enc.parameters(), lr=LR)
 print(f"Params: {sum(p.numel() for p in enc.parameters()):,}", flush=True)
 
 # ── Train ──
-MASK_GROUPS = 3
+MASK_THRESHOLD = 0.5
 MASK_LAMBDA = 0.1
 t0 = time.time()
 for step in range(STEPS):
@@ -102,14 +117,14 @@ for step in range(STEPS):
     inp = bytes_t[idx].to(device)
     target = targets_t[idx].to(device)
 
-    state, mask = enc(inp)
+    state, mask = enc(inp)                       # mask: (B, 24) per-position logit
     state_loss = F.mse_loss(state, target)
 
-    # mask target: step function at num_bytes, grouped into MASK_GROUPS of 8
+    # mask target: rising edge at num_bytes — ~0 before the boundary byte,
+    # ~1 at/after it, so sigmoid(mask) exceeds threshold exactly at the split.
     nb = nbytes_t[idx].to(device)                                  # (B,)
-    pos_idx = torch.arange(MAX_BYTES, device=device).unsqueeze(0)  # (1, T)
-    step_mask = (pos_idx < nb.unsqueeze(1)).float()                # (B, T) 1=real byte
-    mask_tgt = step_mask.view(BATCH, MASK_GROUPS, MAX_BYTES // MASK_GROUPS).mean(dim=-1)  # (B, 3)
+    pos_idx = torch.arange(MAX_BYTES, device=device).unsqueeze(0).float()  # (1, T)
+    mask_tgt = torch.sigmoid(4.0 * (pos_idx - nb.unsqueeze(1)))    # (B, 24) ramp
     mask_loss = F.binary_cross_entropy_with_logits(mask, mask_tgt)
 
     loss = state_loss + MASK_LAMBDA * mask_loss
@@ -119,8 +134,11 @@ for step in range(STEPS):
     if (step+1) % 1000 == 0:
         sps = (step+1) / (time.time() - t0)
         cos = F.cosine_similarity(state, target).mean().item()
+        # split accuracy vs num_bytes
+        split = find_split(mask, MASK_THRESHOLD)
+        acc = (split == nb).float().mean().item()
         print(f"step {step+1:5d}  loss={loss.item():.4f}  state={state_loss.item():.4f}  "
-              f"mask={mask_loss.item():.4f}  cos={cos:.4f}  {sps:.1f} st/s", flush=True)
+              f"mask={mask_loss.item():.4f}  cos={cos:.4f}  split_acc={acc:.3f}  {sps:.1f} st/s", flush=True)
     if (step+1) % 5000 == 0:
         Path(SAVE_PATH).parent.mkdir(parents=True, exist_ok=True)
         torch.save(enc.state_dict(), Path(SAVE_PATH))
