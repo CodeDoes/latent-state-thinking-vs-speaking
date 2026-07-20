@@ -1,24 +1,17 @@
-"""Streaming tokenizer: trains on full 24-byte grids, streams via sliding window.
+"""Sliding-window tokenizer: 24-byte windows, predict first-token boundary.
 
-Training: all 24 positions filled (zeros after token end). Model predicts which
-position is the last byte. 100% accuracy achieved in 1000 steps.
-
-Inference: bytes arrive one at a time. Grid fills left to right. At each step,
-find the LAST non-zero position. If model's trigger at that position > 0.5, emit.
+Training: for each 24-byte window aligned to token starts, the model
+predicts which position ends the first token. Window then slides past
+the predicted boundary (like inference).
 """
-import torch, torch.nn.functional as F, time, random
+import torch, torch.nn.functional as F, time, random, pickle
 from pathlib import Path
 import sys; sys.path.insert(0, '.')
 from src.hf_rwkv_tokenizer import RWKV_TOKENIZER
 
-DEVICE = "cuda"
-LR = 3e-3
-STEPS = 2000
-LOG_EVERY = 200
-SAVE_EVERY = 1000
-BATCH = 2048
-MAX_BYTES = 24
-SAVE_PATH = "experiments/streaming_tokenizer/model.pt"
+DEVICE = "cuda"; LR = 3e-3; STEPS = 5000; LOG_EVERY = 500
+BATCH = 2048; MAX_BYTES = 24
+SAVE_PATH = "experiments/streaming_tokenizer/sliding_model.pt"
 
 device = torch.device(DEVICE)
 tok = RWKV_TOKENIZER(str(Path("src/rwkv_vocab_v20230424.txt")))
@@ -34,50 +27,50 @@ class Tokenizer(torch.nn.Module):
         h = torch.relu(self.conv1(h))
         h = torch.sigmoid(self.conv2(h))
         return torch.sigmoid(self.trig(h.view(h.shape[0], -1)))
-    def forward_stream(self, byte_seq):
-        """Stream bytes one at a time. Returns list of trigger probs."""
-        grid = torch.zeros(1, 1, 24, 8, device=device)
-        triggers = []
-        for t, b in enumerate(byte_seq):
-            # Fill position t
-            bits = ((torch.tensor([b], device=device).unsqueeze(-1) >> torch.arange(8, device=device)) & 1).float()
-            grid[:, :, t:t+1, :] = bits.unsqueeze(1)
-            # Compute triggers on current grid
-            h = torch.relu(self.conv1(grid))
-            h = torch.sigmoid(self.conv2(h))
-            all_trig = torch.sigmoid(self.trig(h.view(1, -1))).squeeze(0)
-            # Only consider positions that have been filled so far
-            pos_trig = all_trig[:t+1].max().item()
-            triggers.append(pos_trig)
-        return triggers
 
-# ── Data ──
+# ── Build sliding-window training data ──
 with open("experiments/tinystories_texts.txt") as f:
     stories = f.read().split("\n---END---\n")
 
-tokens = []
-for s in stories[:200]:
-    raw = s.encode("utf-8")[:4096]
-    idx = 0
-    while idx < len(raw):
-        old = idx
-        idx, node, vals = tok.root.find_longest(raw, idx)
-        if idx == old: idx += 1; continue
-        tb = raw[old:idx]
-        if 0 < len(tb) <= MAX_BYTES:
-            tokens.append(tb)
-print(f"Tokens: {len(tokens):,}", flush=True)
+cache_path = "experiments/streaming_tokenizer/windows_cache.pkl"
+if Path(cache_path).exists():
+    print("Loading cached windows...", flush=True)
+    with open(cache_path, "rb") as f:
+        windows = pickle.load(f)
+    print(f"Loaded {len(windows):,} windows", flush=True)
+else:
+    windows = []
+    for si, s in enumerate(stories[:100]):
+        if si % 50 == 0: print(f"  story {si}/100", flush=True)
+        raw = s.encode("utf-8")[:4096]
+        if len(raw) < 3: continue
+        boundaries = set()
+        idx = 0
+        while idx < len(raw):
+            old = idx
+            idx, node, vals = tok.root.find_longest(raw, idx)
+            if idx == old: idx += 1; continue
+            boundaries.add(idx - 1)
+        for start in range(max(0, len(raw) - MAX_BYTES + 1)):
+            win = raw[start:start + MAX_BYTES]
+            bps = [p for p in range(MAX_BYTES) if (start + p) in boundaries]
+            if bps:
+                windows.append((win, bps[0]))
+    print(f"Windows: {len(windows):,}", flush=True)
+    Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        pickle.dump(windows, f)
 
-# Build tensors
-B = len(tokens)
-byte_mat = torch.zeros(B, MAX_BYTES, dtype=torch.long, device=device)
-trig_target = torch.zeros(B, MAX_BYTES, device=device)
-for i, tb in enumerate(tokens):
-    for j, b in enumerate(tb):
-        byte_mat[i, j] = b
-    trig_target[i, len(tb) - 1] = 1.0
-
+B = len(windows)
+print(f"Building tensors ({B:,} windows)...", flush=True)
+byte_mat = torch.tensor([[b for b in win] for win, _ in windows], dtype=torch.long, device='cpu')
+trig_target = torch.zeros(B, MAX_BYTES)
+for i, (_, pos) in enumerate(windows):
+    trig_target[i, pos] = 1.0
+byte_mat = byte_mat.to(device)
+trig_target = trig_target.to(device)
 bits = ((byte_mat.unsqueeze(-1) >> torch.arange(8, device=device)) & 1).float()
+print(f"Ready: {byte_mat.shape}, {bits.shape}", flush=True)
 
 model = Tokenizer().to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=LR)
@@ -88,33 +81,46 @@ for step in range(STEPS):
     idx = torch.randperm(B)[:BATCH]
     pred = model(bits[idx])
     target = trig_target[idx]
-    # BCE on trigger position
     bce = F.binary_cross_entropy(pred, target, reduction='none')
-    # Extra penalty: non-trigger positions should be BELOW 0.1
-    margin = torch.relu(pred[target < 0.5] - 0.1).mean()  # push non-trigger down
+    margin = torch.relu(pred[target < 0.5] - 0.1).mean()
     loss = bce.mean() + margin
+    
     opt.zero_grad(); loss.backward(); opt.step()
     
     if (step + 1) % LOG_EVERY == 0:
         sps = (step + 1) / (time.time() - t0)
-        pos_acc = (pred.argmax(1) == trig_target[idx].argmax(1)).float().mean().item()
+        pos_acc = (pred.argmax(1) == target.argmax(1)).float().mean().item()
         print(f"step {step+1:5d}  loss={loss.item():.4f}  pos_acc={pos_acc:.3f}  {sps:.1f} st/s", flush=True)
-    if (step + 1) % SAVE_EVERY == 0:
+    if (step + 1) % 2000 == 0:
         Path(SAVE_PATH).parent.mkdir(parents=True, exist_ok=True)
         torch.save(model.state_dict(), Path(SAVE_PATH))
 
-# Streaming eval
-print(f"\nStreaming eval:", flush=True)
-hits, total = 0, 0
-for tb in tokens[:100]:
-    triggers = model.forward_stream(tb)
-    # Fire when last-filled position has max trigger > 0.5
-    got = [t for t in range(len(tb)) if triggers[t] > 0.5]
-    expected = [len(tb) - 1]
-    if got == expected: hits += 1
-    total += 1
-    match = "✓" if got == expected else "✗"
-    print(f"  {match} {tb!r:12s}  got={got}  probs={[f'{triggers[t]:.2f}' for t in range(len(tb))]}", flush=True)
+# ── Inference test ──
+print(f"\n{'='*50}", flush=True)
+print("Inference:", flush=True)
+test_bytes = b"Hello World! This is a test of sliding window tokenization."
+print(f"Input: {test_bytes.decode()}", flush=True)
 
-print(f"\n{hits}/{total} correct  ({100*hits/total:.1f}%)", flush=True)
+buf = bytearray()
+tokens = []
+for b in test_bytes:
+    buf.append(b)
+    if len(buf) >= 24:
+        inp = torch.zeros(1, 24, dtype=torch.long, device=device)
+        for j, x in enumerate(buf[:24]): inp[0, j] = x
+        bits_inp = ((inp.unsqueeze(-1) >> torch.arange(8, device=device)) & 1).float()
+        boundary = model(bits_inp).squeeze(0).argmax().item()
+        token_end = boundary + 1
+        if token_end <= len(buf) and token_end <= 24:
+            tokens.append(bytes(buf[:token_end]))
+            buf = buf[token_end:]
+if buf: tokens.append(bytes(buf))
+
+for t in tokens:
+    print(f"  {t!r}", flush=True)
+
+# Compare with real
+real_tokens = tok.encodeBytes(test_bytes)
+print(f"\\nReal tokenizer: {len(real_tokens)} tokens", flush=True)
+print(f"Our model: {len(tokens)} tokens", flush=True)
 print(f"Done in {(time.time()-t0)/60:.1f} min", flush=True)
