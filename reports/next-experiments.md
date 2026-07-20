@@ -4,7 +4,7 @@ Sorted smallest-first. Each matches the smoke-test rule. The hottest items link 
 
 ## 1. Adaptive-exit-entropy sweep — smoke test runnable today
 
-[Theory](../theories/adaptive/adaptive-exit-entropy.md) — 60-second runnable, CPU only.
+[Theory](../threads/adaptive_compute/adaptive-exit-entropy.md) — 60-second runnable, CPU only.
 
 **Sweep**: `entropy_weight ∈ {0.0, 0.001, 0.01, 0.05, 0.1}` at matched dims and 100 steps each (5 minutes total). Predicted:
 
@@ -25,7 +25,7 @@ python -m src.train_adaptive_entropy --sweep --exp_id_prefix ent_sweep --steps 1
 
 ## 2. Dendrite Growth G1 — min viable proof
 
-[Theory](../theories/memory/dendrite_growth.md) — needs an implementation but is otherwise cheap.
+[Theory](../threads/memory_growth/dendrite_growth.md) — needs an implementation but is otherwise cheap.
 
 **Hypothesis**: A frozen trunk + one trainable branch can learn a new task without modifying the trunk.
 
@@ -45,7 +45,7 @@ python src/train_grow_branch.py --task sum_threshold --exp_id grow_G1a
 
 ## 3. Token-VS-byte head — already-existence ablation
 
-[Theory](../theories/adaptive/token-vs-byte-head.md) — needs ablation script.
+[Theory](../threads/adaptive_compute/token-vs-byte-head.md) — needs ablation script.
 
 **Hypothesis**: byte head (vocab=258) vs token head (vocab=50k) yields same accuracy at matched params but byte head uses dense supervision.
 
@@ -59,7 +59,7 @@ python src/train_grow_branch.py --task sum_threshold --exp_id grow_G1a
 
 ## 4. Realtime AI synthetic stream — R1
 
-[Theory](../theories/application/realtime_ai.md) — needs synth generator.
+[Theory](../threads/realtime_learning/realtime_ai.md) — needs synth generator.
 
 **Hypothesis**: byte-level RWKV with surprise-router ingests multi-channel streams and learns co-occurrence (e.g. "wif[i]-assoc, bt[ooth]-probe co-occur").
 
@@ -73,7 +73,7 @@ python src/train_grow_branch.py --task sum_threshold --exp_id grow_G1a
 
 ## 5. Read-twice vs progressive-expansion matched compute
 
-[Theory](../theories/memory/read-twice.md) — needs both implementations.
+[Theory](../threads/memory_growth/read-twice.md) — needs both implementations.
 
 **Hypothesis**: read-twice (same trunk twice) ≥ progressive-expansion (one extra layer) at matched FLOPs.
 

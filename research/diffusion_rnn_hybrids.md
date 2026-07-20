@@ -7,7 +7,7 @@ Papers combining diffusion/denoising with recurrent neural network architectures
 ## B3D-RWKV (Triplet-Block Diffusion RWKV)
 - **arXiv**: [2605.25969](https://arxiv.org/abs/2605.25969)
 - **HF**: [leonardklin/B3D-RWKV](https://huggingface.co/leonardklin/B3D-RWKV)
-- **Already cited in**: [`theories/spatial/b3d-rwkv-nano.md`](b3d-rwkv-nano.md)
+- **Already cited in**: [`threads/b3d/b3d-rwkv-nano.md`](b3d-rwkv-nano.md)
 - **Scale**: 7.2B parameters
 
 **Summary**: Proposes a triplet-block layout for diffusion RWKV. Each logical block of B tokens appears three times:

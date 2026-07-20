@@ -4,8 +4,8 @@ import unittest
 import torch
 import torch.nn as nn
 
-from src.delta_mem import DeltaRuleStateMemory, RWKVStateMemory
-from src.transformer_with_memory import (
+from threads.delta_mem.delta_mem import DeltaRuleStateMemory, RWKVStateMemory
+from threads.memory_growth.transformer_with_memory import (
     CausalSelfAttentionWithMemory,
     TransformerWithMemory,
 )

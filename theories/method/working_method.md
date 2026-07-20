@@ -1,5 +1,9 @@
 # Working Method
 
+> **Note:** the current, enforced contract is `AGENTS.md` ("The Loop") and
+> `src/experiment.py`. This file is the historical rationale — *why* the
+> rules exist. Where they conflict, AGENTS.md wins.
+
 How this project gets run. These rules are derived from the user's verbatim instructions and from what actually went wrong when they were violated.
 
 ## Core operating principles

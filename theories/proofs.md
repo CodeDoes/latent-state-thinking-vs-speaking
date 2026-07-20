@@ -1,6 +1,21 @@
-# Proven Claims
+# Claim Ledger
 
-## BlackGoose Channel-Mix Replacement (2024-07-20)
+<!--
+LEDGER FORMAT (enforced by AGENTS.md, Loop step 8):
+Every entry — supported OR refuted — records:
+  **Claim**      one falsifiable sentence
+  **Theory**     path to the spec + hypothesis id
+  **Method**     what was run (experiment ids)
+  **Baseline**   the comparison run + its key metric
+  **Results**    measured numbers (params, accuracy, speed)
+  **Prior art**  closest published method + the Δ against it
+  **Commit**     hash; `git tag` via src/_tag.py for runs worth citing
+Entries without a baseline number are drafts, not proof.
+-->
+
+## Supported
+
+### BlackGoose Channel-Mix Replacement (2024-07-20)
 
 **Claim**: A single `nn.Linear(2560, 2560)` (BlackGoose CMix) can replace the full RWKV-7 channel-mix FFN (time-mix shift + ReLU² + key/value projections) in the frozen g1g 2.9B model, with cosine similarity >0.80 to the original output.
 
@@ -25,3 +40,23 @@
 - `layer_0_trained.pt` — trained weights
 
 **Commit**: Pending
+
+## Refuted
+
+<!--
+Refuted claims live here permanently — this is the project's memory of what
+does NOT work. Before proposing anything, grep this section first.
+Format is identical to Supported entries.
+
+### <Title> (<date>)
+**Claim** ...
+**Theory** <path>
+**Method** <experiment ids>
+**Baseline** <run + metric>
+**Results** <measured numbers vs prediction>
+**Lesson** <what belief changed; what to try instead>
+**Commit** <hash>
+-->
+
+(none recorded yet in the new ledger format — historical dead ends are in
+`theories/archive/` only; port them here as they become relevant)

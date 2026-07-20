@@ -12,7 +12,7 @@ ArXiv literature search results for the byte-level RWKV project. Each file cover
 | [`adaptive_compute.md`](adaptive_compute.md) | DART, RAViT, Input-Conditioned Layer Dropping | `adaptive/adaptive-exit-entropy.md` |
 | [`memory_associative.md`](memory_associative.md) | DeltaNet, HOLA, Simple Linear Attention, HRM-RWKV-Text, DREAMSTATE | `memory/delta-mem.md`, `memory/dendrite_growth.md`, `memory/rwkv-state-carry.md` |
 | [`diffusion_rnn_hybrids.md`](diffusion_rnn_hybrids.md) | B3D-RWKV, DREAMSTATE, RDM, Recurrent Autoregressive Diffusion | `spatial/b3d-rwkv-nano.md`, `spatial/diffusion-grid-terminal.md` |
-| [`modular_dendritic_networks.md`](modular_dendritic_networks.md) | LoRA, PathNet, Mixture of Experts, Progressive Networks, Net2Net | `memory/dendrite_memory.md`, `memory/dendrite_growth.md`, `memory/progressive-expansion.md` |
+| [`modular_dendritic_networks.md`](modular_dendritic_networks.md) | LoRA, PathNet, Mixture of Experts, Progressive Networks, Net2Net | `archive/dendrite_memory.md`, `memory/dendrite_growth.md`, `memory/progressive-expansion.md` |
 
 ## How to Use
 

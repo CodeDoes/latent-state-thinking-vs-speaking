@@ -4,12 +4,11 @@
 Usage:
     python src/_status.py [--all] [--theory] [--experiment] [--code]
 
-Default is `--all` (everything). Each section respects the layout
-documented in AGENTS.md:
+Default is `--all` (everything). Layout (see AGENTS.md):
 
-    theories/        — single-file theory docs, no separate status subfile
-    experiments/     — run directories (one per experiment id)
-    src/             — code modules, organized by what they serve
+    threads/<slug>/  — one question: theory docs + code + experiments/
+    theories/        — cross-thread governance (ledger, thesis, methods)
+    kit/ domains/    — shared codebases (tier 0/1); src/ = tooling
 
 The script prints discovered items grouped by theory, with notes on
 each experiment's state.
@@ -64,35 +63,24 @@ def git_dirty():
 
 # ── Theories ────────────────────────────────────────────────────────────
 
-THEORY_BLACKLIST = {"status.md", "proofs.md", "dump.rwkv-rosa-dendrite.txt"}
-THEORY_SUBDIRS = (
-    "architecture", "memory", "adaptive", "spatial",
-    "core", "method", "application", "analysis",
-)
-
-
 def discover_theories():
-    """Discover theory files. Top-level files first, then per-subdir."""
+    """Discover theory docs: cross-thread (theories/) + per-thread (threads/)."""
     out = []
-    # Top-level theories (ultimate, proofs, status, etc.)
     p = ROOT / "theories"
     if p.exists():
         for f in sorted(p.glob("*.md")):
-            if f.name in THEORY_BLACKLIST:
+            if f.name in ("status.md", "proofs.md") or f.name.startswith("."):
                 continue
-            if f.name.startswith("status") or f.name.startswith("."):
+            out.append((f"theories/{f.name}", _first_blurb(f), f))
+    tp = ROOT / "threads"
+    if tp.exists():
+        for thread in sorted(d for d in tp.iterdir() if d.is_dir()):
+            docs = sorted(thread.glob("*.md"))
+            if not docs:
                 continue
-            blurb = _first_blurb(f)
-            out.append((f.name, blurb, f))
-    # Subdirectories
-    for sub in THEORY_SUBDIRS:
-        sp = ROOT / "theories" / sub
-        if not sp.exists():
-            continue
-        out.append(("", f"── {sub}/ ──", None))
-        for f in sorted(sp.glob("*.md")):
-            blurb = _first_blurb(f)
-            out.append((f.name, blurb, f))
+            out.append(("", f"── threads/{thread.name}/ ──", None))
+            for f in docs:
+                out.append((f.name, _first_blurb(f), f))
     return out
 
 
@@ -200,21 +188,21 @@ def exp_status(exp_dir: Path):
 
 def discover_experiments():
     experiments = []
-    p = ROOT / "experiments"
-    if not p.exists():
-        return []
-    for f in sorted(p.iterdir()):
-        if not f.is_dir():
-            continue
-        if f.name.startswith("."):
-            continue
-        # Skip archive-like dirs that have no config
-        cfg = f / "config.json"
-        log = f / "train.log"
-        metric = f / "metrics.json"
-        if not (cfg.exists() or log.exists() or metric.exists()):
-            continue
-        experiments.append(f)
+    roots = sorted(ROOT.glob("threads/*/experiments"))
+    if (ROOT / "experiments").exists():
+        roots.append(ROOT / "experiments")
+    for p in roots:
+        for f in sorted(p.iterdir()):
+            if not f.is_dir():
+                continue
+            if f.name.startswith("."):
+                continue
+            cfg = f / "config.json"
+            log = f / "train.log"
+            metric = f / "metrics.json"
+            if not (cfg.exists() or log.exists() or metric.exists()):
+                continue
+            experiments.append(f)
     return experiments
 
 
@@ -246,7 +234,7 @@ def discover_modules():
     p = ROOT / "src"
     if not p.exists():
         return {}
-    for f in sorted(p.glob("*.py")):
+    for f in sorted(p.rglob("*.py")):
         if f.name.startswith("_"):
             continue
         if f.name in CODE_BLACKLIST:

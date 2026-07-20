@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Run experiments via `python -m src <command> ...`
 
+This module *executes* runs. The lifecycle around runs — scaffolding from a
+theory doc, recording metrics, verdicts, the index, config diffs, and the
+definition-of-done audit — lives in `src/experiment.py`:
+
+    python -m src.experiment <theory|new|record|verdict|compare|index|audit>
+
 Usage:
     python -m src list                                    # list available experiment types
     python -m src run <exp_id> <exp_type> [--gpu] [flags] # run + tag + save everything
@@ -34,97 +40,117 @@ EXPERIMENTS_DIR = ROOT / "experiments"
 TAG_SCRIPT = ROOT / "src" / "_tag.py"
 
 
+def _exp_dir_for(exp_type, exp_id):
+    """Runs live in their thread: threads/<slug>/experiments/<id>."""
+    mod = EXPERIMENT_TYPES.get(exp_type, {}).get("module", "")
+    if mod.startswith("threads."):
+        return ROOT / "threads" / mod.split(".")[1] / "experiments" / exp_id
+    return EXPERIMENTS_DIR / exp_id
+
+
+def _find_exp_dir(exp_id):
+    """Locate an existing run dir across all threads (and legacy top dir)."""
+    cand = EXPERIMENTS_DIR / exp_id
+    if cand.exists():
+        return cand
+    for exps in sorted(ROOT.glob("threads/*/experiments")):
+        c = exps / exp_id
+        if c.exists():
+            return c
+    return cand
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Registry of known experiment types
 # ═══════════════════════════════════════════════════════════════════════
 
 EXPERIMENT_TYPES = {
     "byte_loop": {
-        "module": "src.byte_loop_model",
+        "module": "threads.byte_state_byte.byte_loop_model",
         "class": "ByteLoopModel",
         "defaults": {"dim": 64, "n_layers": 2, "min_len_before_trigger": 8, "max_loops": 4},
         "desc": "Byte-level encoder↔decoder loop with trigger gates",
         "task": "arith",
     },
     "patch_loop": {
-        "module": "src.patch_loop_model",
+        "module": "threads.byte_state_byte.patch_loop_model",
         "class": "PatchLoopModel",
         "defaults": {"dim": 64, "n_layers": 2, "patch_size": 8},
         "desc": "Patch-level encoder→sparse decoder (B7)",
         "task": "patch_repeat",
     },
     "adaptive_loop": {
-        "module": "src.byte_loop_model",
+        "module": "threads.byte_state_byte.byte_loop_model",
         "class": "ByteLoopModel",
         "defaults": {"dim": 64, "n_layers": 2, "min_len_before_trigger": 8, "max_loops": 4},
         "desc": "Adaptive-loop byte-state-byte (B5)",
         "task": "arith",
     },
     "rnn_patch": {
-        "module": "src.rnn_patch_model",
+        "module": "threads.byte_state_byte.rnn_patch_model",
         "class": "RNNPatchModel",
         "defaults": {"dim": 64, "n_layers": 2, "patch_size": 8},
         "desc": "Step-function RNN patch model",
         "task": "patch_repeat",
     },
     "shared_state": {
-        "module": "src.shared_state_model",
+        "module": "threads.byte_state_byte.shared_state_model",
         "class": "SharedStateModel",
         "defaults": {"dim": 64, "n_layers": 2, "patch_size": 8},
         "desc": "Per-step RWKV blocks, separate encoder/patch/decoder",
         "task": "patch_repeat",
     },
     "shared_state_v2": {
-        "module": "src.shared_state_model_v2",
+        "module": "threads.byte_state_byte.shared_state_model_v2",
         "class": "SharedStateModelV2",
         "defaults": {"dim": 64, "n_layers": 2, "patch_size": 8},
         "desc": "Shared-weights unrolled RWKV (v2)",
         "task": "patch_repeat",
     },
     "dendrite": {
-        "module": "src.dendrite_model",
+        "module": "threads.memory_growth.dendrite_model",
         "class": "DendriteModel",
         "defaults": {"dim": 64, "n_layers": 2, "n_dendrites": 4},
         "desc": "Frozen trunk + LoRA dendrite branches",
         "task": "arith",
     },
     "token_byte_head": {
-        "module": "src.token_byte_head_model",
+        "module": "threads.byte_state_byte.token_byte_head_model",
         "class": "TokenByteHeadModel",
         "defaults": {"dim": 64, "n_layers": 2, "vocab_size": 258},
         "desc": "Token-level model with byte output head",
         "task": "arith",
     },
     "b3d": {
-        "module": "src.b3d_rwkv_model",
+        "module": "threads.b3d.b3d_rwkv_model",
         "class": "B3DRWKVModel",
         "defaults": {"dim": 64, "n_layers": 2},
         "desc": "B3D-RWKV spatial model",
         "task": "grid",
     },
     "diffusion_grid": {
-        "module": "src.diffusion_grid_model",
+        "module": "threads.diffusion_grid.diffusion_grid_model",
         "class": "DiffusionGridModel",
         "defaults": {"dim": 64, "grid_size": 8},
         "desc": "Grid-based diffusion model",
         "task": "grid",
     },
     "movable_grid": {
-        "module": "src.movable_grid_model",
+        "module": "threads.movable_grid.movable_grid_model",
         "class": "MovableGridModel",
         "defaults": {"dim": 64, "grid_size": 8},
         "desc": "Pointer-based movable grid model",
         "task": "grid",
     },
     "injection_freq": {
-        "module": "src.injection_freq_model",
+        "module": "threads.byte_state_byte.injection_freq_model",
         "class": "InjectionFreqModel",
         "defaults": {"dim": 64, "n_layers": 2, "injection_freq": 4},
         "desc": "Controlled injection frequency model",
         "task": "arith",
     },
     "viewport_zoom_pan": {
-        "module": "src.viewport_zoom_pan_model",
+        "module": "threads.screen_viewport.viewport_zoom_pan_model",
         "class": "ViewportZoomPanModel",
         "defaults": {"dim": 64, "viewport_size": 8},
         "desc": "Screen viewport with zoom/pan",
@@ -136,49 +162,29 @@ EXPERIMENT_TYPES = {
 # Synthetic data generators (learnable patterns)
 # ═══════════════════════════════════════════════════════════════════════
 
-TASK_GENERATORS = {}
+
+from kit.tasks import TASKS as TASK_GENERATORS
+from kit.train import pad_batch as _pad_batch  # noqa: F401
+from kit.train import train as _kit_train
 
 
-def _task_arith(n=2000, seed=42):
-    """Incrementing bytes: predict next byte."""
-    import random
-    rng = random.Random(seed)
-    data = []
-    for _ in range(n):
-        start = rng.randint(0, 200)
-        length = rng.randint(16, 48)
-        # 0=PAD, 1=TRIGGER (reserved), 2..257 = bytes 0..255
-        seq = [((start + i) % 256) + 2 for i in range(length)]
-        data.append(seq)
-    return data
-TASK_GENERATORS["arith"] = _task_arith
+def train(model, data, config, device, log_f):
+    """Shim preserving the old (device, log_f) signature over kit.train."""
+    def emit(line):
+        print(line)
+        log_f.write(line + "\n")
 
+    class _Shim:
+        log = staticmethod(emit)
 
-def _task_patch_repeat(n=2000, seed=42):
-    """Patches that repeat (predict same patch repeats)."""
-    import random
-    rng = random.Random(seed)
-    data = []
-    for _ in range(n):
-        ps = rng.choice([4, 8])
-        np_ = rng.randint(3, 6)
-        patch = [rng.randint(2, 257) for _ in range(ps)]
-        data.append((patch * np_)[:])
-    return data
-TASK_GENERATORS["patch_repeat"] = _task_patch_repeat
+        def record(self, **kw):
+            pass
 
+        def save_checkpoint(self, model, name="checkpoint.pt"):
+            import torch
+            torch.save(model.state_dict(), Path(log_f.name).parent / name)
 
-def _task_grid(n=500, seed=42):
-    """2D spatial pattern flattened to 1D."""
-    import random
-    rng = random.Random(seed)
-    data = []
-    for _ in range(n):
-        gs = rng.choice([4, 8])
-        flat = [(rng.randint(2, 10)) + 2 for _ in range(gs * gs)]
-        data.append(flat)
-    return data
-TASK_GENERATORS["grid"] = _task_grid
+    return _kit_train(model, data, config, run_log=_Shim(), device=device)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -269,117 +275,12 @@ def _device(gpu):
     return d
 
 
-def _pad_batch(batch):
-    """Pad a list of sequences to same length. Returns (x_list, y_list)."""
-    max_len = max(len(s) for s in batch)
-    x_list, y_list = [], []
-    for seq in batch:
-        x = seq[:-1]
-        y = seq[1:]
-        pad = (max_len - 1) - len(x)
-        if pad > 0:
-            x = x + [0] * pad
-            y = y + [0] * pad
-        x_list.append(x)
-        y_list.append(y)
-    return x_list, y_list
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Training loop
 # ═══════════════════════════════════════════════════════════════════════
 
-def train(model, data, config, device, log_f):
-    """Run training, write to log_f, return metrics dict."""
-    import torch
-    import torch.nn.functional as F
-
-    model.to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=config["lr"])
-    steps = config["steps"]
-    batch_size = config["batch_size"]
-    log_every = config.get("log_every", 10)
-    save_every = config.get("save_every", steps)
-
-    best_loss = float("inf")
-    start_loss = None
-    start_time = time.time()
-    step_times = []
-
-    for step in range(steps):
-        t0 = time.time()
-        total_loss = 0.0
-        n_batches = 0
-
-        for i in range(0, len(data), batch_size):
-            batch = data[i : i + batch_size]
-            x_list, y_list = _pad_batch(batch)
-            x = torch.tensor(x_list, dtype=torch.long, device=device)
-            y = torch.tensor(y_list, dtype=torch.long, device=device)
-
-            logits, info = model(x)
-            if not isinstance(info, dict):
-                logits, info = info, {}
-
-            vocab_size = logits.shape[-1]
-            loss = F.cross_entropy(logits.view(-1, vocab_size), y.view(-1))
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            opt.zero_grad()
-            total_loss += loss.item()
-            n_batches += 1
-
-        avg_loss = total_loss / n_batches
-        dt = time.time() - t0
-        step_times.append(dt)
-
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-        if start_loss is None:
-            start_loss = avg_loss
-
-        elapsed = time.time() - start_time
-        line = f"step {step:4d} | loss {avg_loss:.4f} | best {best_loss:.4f} | {dt:.2f}s | {elapsed:.1f}s"
-        log_f.write(line + "\n")
-        if step % log_every == 0 or step < 3:
-            print(line)
-
-        # Save checkpoint periodically
-        if save_every > 0 and step > 0 and step % save_every == 0:
-            ckpt_path = Path(log_f.name).parent / f"step_{step:04d}.pt"
-            torch.save(model.state_dict(), ckpt_path)
-            log_f.write(f"  ckpt: {ckpt_path.name}\n")
-
-    total_time = time.time() - start_time
-    metrics = {
-        "start_loss": round(start_loss, 4),
-        "best_loss": round(best_loss, 4),
-        "final_loss": round(avg_loss, 4),
-        "steps": steps,
-        "total_time_s": round(total_time, 1),
-        "avg_step_s": round(sum(step_times) / len(step_times), 3),
-        "params": _count_params(model),
-    }
-
-    # Save final checkpoint
-    torch.save(model.state_dict(), Path(log_f.name).parent / "checkpoint.pt")
-
-    line = f"\nDone. {steps} steps | start {start_loss:.4f} → best {best_loss:.4f} | {total_time:.1f}s"
-    log_f.write(line + "\n")
-    print(line)
-
-    # Verdict
-    if best_loss < start_loss * 0.3:
-        verdict = "LEARNED"
-    elif best_loss < start_loss * 0.8:
-        verdict = "PARTIAL"
-    else:
-        verdict = "FLAT"
-    metrics["verdict"] = verdict
-    print(f"Verdict: {verdict}")
-
-    return metrics
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -411,7 +312,7 @@ def cmd_run(args):
     print(f"{'='*60}")
 
     # Create dir
-    exp_dir = EXPERIMENTS_DIR / exp_id
+    exp_dir = _exp_dir_for(exp_type, exp_id)
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     # Build config
@@ -497,7 +398,7 @@ def cmd_run(args):
     # Pre-tag if clean
     if tagged:
         try:
-            subprocess.run(["git", "-C", str(ROOT), "add", "--force", f"experiments/{exp_id}"], check=False)
+            subprocess.run(["git", "-C", str(ROOT), "add", "--force", str(exp_dir.relative_to(ROOT))], check=False)
             subprocess.run(
                 ["git", "-C", str(ROOT), "commit", "-m", f"experiment {exp_id}: {config['description']}"],
                 check=False, capture_output=True,
@@ -513,7 +414,7 @@ def cmd_run(args):
 def cmd_resume(args):
     """Resume an experiment from its checkpoint."""
     exp_id = args.id
-    exp_dir = EXPERIMENTS_DIR / exp_id
+    exp_dir = _find_exp_dir(exp_id)
     if not exp_dir.exists():
         print(f"Experiment not found: {exp_id}")
         sys.exit(1)
@@ -565,7 +466,7 @@ def cmd_resume(args):
 def cmd_redo(args):
     """Re-run an experiment from its config.json under a new id."""
     src_id = args.id
-    src_dir = EXPERIMENTS_DIR / src_id
+    src_dir = _find_exp_dir(src_id)
     if not src_dir.exists():
         print(f"Experiment not found: {src_id}")
         sys.exit(1)
@@ -606,7 +507,7 @@ def cmd_prove(args):
     """Record a proof in proofs.md and link an experiment to a claim."""
     claim = args.claim_id
     exp_id = args.exp_id
-    exp_dir = EXPERIMENTS_DIR / exp_id
+    exp_dir = _find_exp_dir(exp_id)
     if not exp_dir.exists():
         print(f"No such experiment: {exp_id}")
         sys.exit(1)

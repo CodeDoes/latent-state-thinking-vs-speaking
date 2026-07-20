@@ -35,7 +35,7 @@ if str(_REPO_ROOT) not in sys.path:
 import torch
 import torch.nn as nn
 
-from src.bottleneck_analysis import (
+from threads.unsorted.bottleneck_analysis import (
     HookManager,
     analyze_bottlenecks,
     format_csv,
@@ -80,7 +80,7 @@ def load_model(path, device='cpu'):
 @torch.no_grad()
 def _load_rwkv(sd, device):
     """Instantiate RWKVNano from its state dict."""
-    from src.rwkv_nano import RWKVNano
+    from domains.rwkv.rwkv_nano import RWKVNano
     
     vocab_size = sd['embed.weight'].shape[0]
     dim = sd['blocks.0.time_decay'].shape[0]
@@ -112,7 +112,7 @@ def _load_rwkv(sd, device):
 
 def _load_latent_think(sd, device):
     """Instantiate LatentThink from its state dict."""
-    from src.models import LatentThink
+    from threads.memory_growth.models import LatentThink
     
     vocab_size = sd['emb.weight'].shape[0]
     d_hidden_enc = sd['enc.weight_hh_l0'].shape[0] // 6  # GRU = 6x hidden
@@ -130,7 +130,7 @@ def _load_latent_think(sd, device):
 
 def _load_baseline_ar(sd, device):
     """Instantiate BaselineAR from its state dict."""
-    from src.models import BaselineAR
+    from threads.memory_growth.models import BaselineAR
     
     vocab_size = sd['emb.weight'].shape[0]
     d_hidden = sd['gru.weight_hh_l0'].shape[0] // 3  # GRU = 3x hidden
@@ -152,7 +152,7 @@ class RwkvDataPipeline:
     """
     def __init__(self, seed=42):
         self.seed = seed
-        from src.logic_niiah_generator import LogicNiiahGenerator
+        from threads.memory_growth.logic_niiah_generator import LogicNiiahGenerator
         self.generator = LogicNiiahGenerator(seed=seed)
         
         # Char-level vocab and tokenizer from train_rwkv
@@ -181,7 +181,7 @@ class RwkvDataPipeline:
 
     def build_dataset(self, n, difficulty_params):
         """Return list of (input_ids_tensor,) tuples."""
-        from src.logic_niiah_generator import LogicNiiahGenerator
+        from threads.memory_growth.logic_niiah_generator import LogicNiiahGenerator
         gen = LogicNiiahGenerator(seed=self.seed)
         examples = []
         for _ in range(n):
@@ -211,7 +211,7 @@ class WorldModelPipeline:
 
     @staticmethod
     def _make_vocab():
-        from src.dataset import build_vocab
+        from threads.memory_growth.dataset import build_vocab
         return build_vocab()
 
     def _tokenize_list(self, items):
@@ -220,7 +220,7 @@ class WorldModelPipeline:
 
     def build_dataloader(self, n, difficulty_params, batch_size=16):
         """Returns DataLoader yielding dicts with 'context' and 'question' tensors."""
-        from src.dataset import generate_dataset
+        from threads.memory_growth.dataset import generate_dataset
         
         worlds = generate_dataset(n=n, seed=self.seed, **difficulty_params)
         
@@ -432,7 +432,7 @@ def main():
     labels_easy = labels_hard = None
     if 'predictability_loss' in metrics_to_run and arch in ('latent_think', 'baseline_ar'):
         # Extract answer labels for world-model
-        from src.dataset import build_vocab
+        from threads.memory_growth.dataset import build_vocab
         vocab_cats = build_vocab()[1]
         answer_map = {s: i for i, s in enumerate(vocab_cats['rel'])}
         
@@ -464,7 +464,7 @@ def main():
     print(f"  Captured {len(hard_acts)} layer groups")
 
     # Compute metrics manually (don't need the full orchestrator since we already have acts)
-    from src.bottleneck_analysis import (
+    from threads.unsorted.bottleneck_analysis import (
         metric_saturation_ratio,
         metric_range_expansion,
         metric_effective_dimensionality,

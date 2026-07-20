@@ -1,0 +1,65 @@
+{
+  "kit/nn.py": {
+    "status": "active"
+  },
+  "kit/runlog.py": {
+    "status": "active"
+  },
+  "kit/tasks.py": {
+    "status": "active"
+  },
+  "kit/train.py": {
+    "status": "active"
+  },
+  "domains/byte/hybrid_tokenizer.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "domains/g1g/auto_tokenizer.py": {
+    "status": "active"
+  },
+  "domains/g1g/g1g_blackgoose_nf4.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "threads/g1g_frontend/gen_blackgoose_data.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "threads/g1g_frontend/train_blackgoose_offline.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "threads/g1g_frontend/train_byte_ae.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "threads/g1g_frontend/train_loopy_timemix.py": {
+    "status": "active",
+    "verdict": "supports"
+  },
+  "threads/memory_growth/train_dendrite.py": {
+    "status": "triage-needed"
+  },
+  "threads/memory_growth/train_dendrite_rwkv.py": {
+    "status": "triage-needed"
+  },
+  "threads/memory_growth/train_dendritic_compare.py": {
+    "status": "triage-needed"
+  },
+  "threads/memory_growth/train_legacy.py": {
+    "status": "triage-needed"
+  },
+  "threads/memory_growth/train_niiah_wc.py": {
+    "status": "triage-needed"
+  },
+  "threads/memory_growth/train_rule_compare.py": {
+    "status": "triage-needed"
+  },
+  "threads/realtime_learning/demo_overfit.py": {
+    "status": "triage-needed"
+  },
+  "threads/realtime_learning/stream_learner.py": {
+    "status": "triage-needed"
+  }
+}
