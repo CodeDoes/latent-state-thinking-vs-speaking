@@ -7,10 +7,9 @@ import torch
 from pathlib import Path
 import sys; sys.path.insert(0, '.')
 from src.train_byte_ae import ByteAE, DIM, LATENT, device
-from src.hf_rwkv_tokenizer import RWKV_TOKENIZER
+from src.hybrid_tokenizer import token_bytes
 from collections import defaultdict
 
-tok = RWKV_TOKENIZER(str(Path("src/rwkv_vocab_v20230424.txt")))
 model = ByteAE(DIM, LATENT).to(device)
 model.load_state_dict(torch.load("experiments/byte_ae/model.pt", map_location=device))
 model.eval()
@@ -18,7 +17,7 @@ model.eval()
 # Group tokens by length
 by_len = defaultdict(list)
 for tid in range(1, 65529):
-    b = tok.idx2token.get(tid, b"")
+    b = token_bytes(tid)
     if len(b) and len(b) <= 24:
         by_len[len(b)].append(b)
 

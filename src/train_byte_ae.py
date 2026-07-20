@@ -92,6 +92,20 @@ if __name__ == "__main__":
         trig_loss = F.binary_cross_entropy(trig.squeeze(-1) * mask, tgt * mask)
 
         loss = byte_loss + 0.5 * trig_loss
+        
+        # Contrastive loss for single-byte tokens: push their latents apart
+        if lengths[0] == 1 and all(l == 1 for l in lengths):
+            # Get latents for this batch of single-byte tokens
+            with torch.no_grad():
+                lats = model.encode(inp)  # (B, 1, latent)
+            # Cosine similarity matrix: encourage diversity
+            lats = lats.squeeze(1)  # (B, latent)
+            sim = (lats @ lats.T) / (lats.norm(dim=1, keepdim=True) @ lats.norm(dim=1, keepdim=True).T + 1e-8)
+            off_diag = sim - torch.eye(BATCH, device=inp.device) * 2  # zero out diagonal, negative for others
+            # Push all off-diagonal toward 0
+            cont_loss = (off_diag ** 2).mean()
+            loss = loss + 0.01 * cont_loss
+        
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()

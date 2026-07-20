@@ -1,159 +1,129 @@
-"""Train the loopy tokenizer (byte→world-token) supervised by TRIE.
+"""Train loopy tokenizer on full vocab using ranking loss + real text.
 
-Architecture:
-    bytes + byte-position → AccumulatorCell (minGRU) → token_logits + trigger
-
-Loss:
-    - token_loss: cross-entropy predicting world token ID at each byte position
-    - trigger_loss: BCE on trigger flag (1 at last byte of each TRIE token)
-
-Easy-to-tweak constants at the top of the file.
+Each byte position predicts the correct token ID via dot-product with
+learned token embeddings. Loss: push correct token logit above a random
+subset of negatives (sampled softmax / NCE).
 """
-import torch, torch.nn.functional as F, time
+import torch, torch.nn.functional as F, time, random
 from pathlib import Path
 import sys; sys.path.insert(0, '.')
-
 from src.loopy_tokenizer import LoopyTokenizerWithPos
 from src.hf_rwkv_tokenizer import RWKV_TOKENIZER
 
-# ══════════════════════════ CONFIG — TWEAK ME ══════════════════════════
+# ════════════ CONFIG ════════════
 DEVICE = "cuda"
 DIM = 8
-LR = 3e-2
-GRAD_CLIP = 1.0
-TRIGGER_WEIGHT = 2.0
+LR = 1e-1
+BATCH = 256
+EPOCHS = 100
 LOG_EVERY = 10
-SAVE_EVERY = 100
-SAVE_PATH = "experiments/loopy_tokenizer/model.pt"
-# ═══════════════════════════════════════════════════════════════════════
+SAVE_EVERY = 200
+NEG_SAMPLES = 512   # negatives per positive for ranking loss
+SAVE_PATH = "experiments/loopy_tokenizer/full_model.pt"
+# ════════════════════════════════
 
-# ── Data ──
-TEXTS = [
-    "Hello World!", "Once upon a time", "The quick brown fox",
-    "Machine learning is fun.", "Testing one two three.",
-    "The cat sat on the mat.", "She sells sea shells.",
-    "How much wood would a woodchuck chuck?",
-    "Peter Piper picked a peck of pickled peppers.",
-    "abcdefghijklmnopqrstuvwxyz", "1234567890",
-    "Foo bar baz", "A quick brown fox jumps over the lazy dog.",
-    "To be or not to be, that is the question.",
-]
-
-# ── Tokenizer ──
 tok = RWKV_TOKENIZER(str(Path("src/rwkv_vocab_v20230424.txt")))
-FULL_VOCAB = len(tok.token2idx)
-
-def find_used_tokens(texts):
-    """Return sorted list of token IDs that appear in the training texts."""
-    used = set()
-    for text in texts:
-        raw = text.encode("utf-8")
-        idx = 0
-        while idx < len(raw):
-            old_idx = idx
-            idx, node, values = tok.root.find_longest(raw, idx)
-            if idx == old_idx: break
-            _, token_id = next(iter(values))
-            used.add(token_id)
-    return sorted(used)
-
-# Map full vocab → trimmed vocab
-USED_TOKENS = find_used_tokens(TEXTS)
-WORLD_VOCAB = len(USED_TOKENS)  # trimmed vocab size
-TOKEN_MAP = {full_id: i for i, full_id in enumerate(USED_TOKENS)}  # full → trimmed
-
-print(f"Full vocab: {FULL_VOCAB:,}, used tokens: {WORLD_VOCAB}", flush=True)
-
-def precompute(texts):
-    items = []
-    for text in texts:
-        raw = text.encode("utf-8")
-        byte_ids_list = [2 + b for b in raw]
-        tokens, spans = [], []
-        idx = 0
-        while idx < len(raw):
-            old_idx = idx
-            idx, node, values = tok.root.find_longest(raw, idx)
-            if idx == old_idx: break
-            _, token_id = next(iter(values))
-            tokens.append(token_id)
-            spans.append((old_idx, idx))
-        T = len(byte_ids_list)
-        byte_ids = torch.tensor([byte_ids_list], device=DEVICE)
-        trig_target = torch.zeros(1, T, device=DEVICE)
-        for _, (s, e) in enumerate(spans):
-            if e - 1 < T: trig_target[0, e - 1] = 1.0
-        # Map full token IDs to trimmed indices
-        trimmed_tokens = [TOKEN_MAP[t] for t in tokens]
-        tok_target = torch.zeros(1, T, dtype=torch.long, device=DEVICE)
-        span_mask = torch.zeros(1, T, device=DEVICE)
-        for ti, (s, e) in enumerate(spans):
-            for bp in range(s, min(e, T)):
-                tok_target[0, bp] = trimmed_tokens[ti]
-                span_mask[0, bp] = 1.0
-        items.append((byte_ids, trimmed_tokens, trig_target, tok_target, span_mask))
-    return items
-
-# ── Build (resume from checkpoint if exists) ──
+V = len(tok.token2idx)
 device = torch.device(DEVICE)
-loopy = LoopyTokenizerWithPos(DIM, WORLD_VOCAB, trigger_bias=-2.0).to(device)
-opt = torch.optim.AdamW(loopy.parameters(), lr=LR)
-sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=2000)
-items = precompute(TEXTS)
 
-n_params = sum(p.numel() for p in loopy.parameters())
-save_p = Path(SAVE_PATH)
-start_step = 0
-if save_p.exists():
-    loopy.load_state_dict(torch.load(save_p, map_location=device))
-    start_step = int(save_p.with_suffix('.step').read_text().strip())
-    print(f"Resumed from {save_p} (step {start_step})", flush=True)
+# Build dataset from vocab file itself — each token as an example
+token_ids = sorted(t for t in range(V) if t in tok.idx2token)
+by_len = {}
+for tid in token_ids:
+    b = tok.idx2token[tid]
+    L = len(b)
+    if L > 10: continue
+    by_len.setdefault(L, []).append(tid)
 
-print(f"Loopy tokenizer params: {n_params:,}", flush=True)
-print(f"dim={DIM}, world_vocab={WORLD_VOCAB}, texts={len(TEXTS)}", flush=True)
-print(f"lr={LR}, trigger_weight={TRIGGER_WEIGHT}", flush=True)
-print(f"log every {LOG_EVERY}, save every {SAVE_EVERY}", flush=True)
+# Pre-encode
+items_by_len = {}
+for L, tids in by_len.items():
+    byte_mat = torch.zeros(len(tids), L, dtype=torch.long, device=device)
+    for i, tid in enumerate(tids):
+        b = tok.idx2token[tid]
+        byte_mat[i] = torch.tensor([2 + byte for byte in b], device=device)
+    targets = torch.tensor(tids, device=device)
+    items_by_len[L] = (byte_mat, targets)
 
-# ── Train ──
+total_tokens = sum(v[0].shape[0] for v in items_by_len.values())
+print(f"Tokens: {total_tokens}, lengths: {list(items_by_len.keys())}", flush=True)
+
+loopy = LoopyTokenizerWithPos(DIM, V).to(device)
+opt = torch.optim.SGD(loopy.parameters(), lr=LR, momentum=0.9)
+n = sum(p.numel() for p in loopy.parameters())
+print(f"Params: {n:,}", flush=True)
+
 t0 = time.time()
-step = start_step
-while True:
-    total_loss = 0.0
-    n = 0
+step = 0
 
-    for byte_ids, tokens, trig_target, tok_target, span_mask in items:
-        token_logits, triggers = loopy.forward_bytes(byte_ids)
+for epoch in range(EPOCHS):
+    lengths = list(items_by_len.keys())
+    random.shuffle(lengths)
+    
+    for L in lengths:
+        byte_mat, targets = items_by_len[L]
+        n_items = byte_mat.shape[0]
+        idxs = list(range(n_items))
+        random.shuffle(idxs)
+        
+        for bstart in range(0, n_items, BATCH):
+            batch_idx = idxs[bstart:bstart + BATCH]
+            batch_bytes = byte_mat[batch_idx]  # (B', L)
+            batch_targets = targets[batch_idx]  # (B',)
+            bb = len(batch_idx)
+            
+            token_logits, trigger_logits = loopy.forward_bytes(batch_bytes)
+            last_logits = token_logits[:, -1]  # (B', V)
+            
+            # Ranking loss: for each target, sample negatives
+            # Push target logit above mean of negatives
+            negs = torch.randint(0, V, (bb, NEG_SAMPLES), device=device)
+            # Ensure negatives don't include the target
+            for i in range(bb):
+                mask = negs[i] == batch_targets[i]
+                negs[i, mask] = (negs[i, mask] + 1) % V
+            
+            target_logits = last_logits.gather(1, batch_targets.unsqueeze(1))  # (B', 1)
+            neg_logits = last_logits.gather(1, negs)  # (B', NEG)
+            
+            # Hinge loss: max(0, neg_logit - target_logit + margin)
+            margin = 1.0
+            loss = F.relu(neg_logits - target_logits + margin).mean()
+            
+            # Trigger loss
+            trig_target = torch.zeros(bb, L, device=device)
+            trig_target[:, -1] = 1.0
+            trig_loss = F.binary_cross_entropy_with_logits(trigger_logits[:bb], trig_target)
+            
+            total_loss = loss + 2.0 * trig_loss
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(loopy.parameters(), 1.0)
+            opt.step()
+            opt.zero_grad()
+            step += 1
+            
+            if step % LOG_EVERY == 0:
+                sps = step / (time.time() - t0)
+                # Compute accuracy on this batch
+                preds = last_logits.argmax(dim=-1)
+                acc = (preds == batch_targets).float().mean().item()
+                print(f"step {step:5d}  e{epoch}  len={L}  rank_loss={loss.item():.4f}  trig={trig_loss.item():.4f}  acc={acc:.3f}  {sps:.1f} st/s", flush=True)
+            
+            if step % SAVE_EVERY == 0:
+                torch.save(loopy.state_dict(), Path(SAVE_PATH))
+                print(f"  saved", flush=True)
 
-        losses = F.cross_entropy(
-            token_logits.view(-1, WORLD_VOCAB), tok_target.view(-1), reduction="none"
-        ).view_as(span_mask)
-        tok_loss = (losses * span_mask).sum() / (span_mask.sum() + 1e-8)
+torch.save(loopy.state_dict(), Path(SAVE_PATH))
+print(f"\nDone in {(time.time()-t0)/60:.1f} min", flush=True)
 
-        trig_loss = F.binary_cross_entropy_with_logits(triggers, trig_target)
-        loss = tok_loss + TRIGGER_WEIGHT * trig_loss
-        total_loss += loss
-        n += 1
-
-    total_loss.backward()
-    torch.nn.utils.clip_grad_norm_(loopy.parameters(), GRAD_CLIP)
-    opt.step()
-    opt.zero_grad()
-
-    step += 1
-    avg_loss = total_loss.item() / n
-
-    if step % LOG_EVERY == 0:
-        sps = step / (time.time() - t0)
-        print(f"step {step:5d}  loss={avg_loss:.4f}  {sps:.1f} st/s", flush=True)
-
-    if step % SAVE_EVERY == 0:
-        save_p.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(loopy.state_dict(), save_p)
-        save_p.with_suffix('.step').write_text(str(step))
-        print(f"  saved to {save_p} (step {step})", flush=True)
-
-    sched.step()
-
-    if avg_loss < 0.01:
-        print(f"\nLow loss ({avg_loss:.4f}) — stopping.", flush=True)
-        break
+# Eval: test first 500 tokens
+correct = 0
+for tid in token_ids[:500]:
+    b = tok.idx2token[tid]
+    byte_ids = torch.tensor([[2 + byte for byte in b]], device=device)
+    token_logits, trigger_logits = loopy.forward_bytes(byte_ids)
+    pred = token_logits[0, -1].argmax().item()
+    trig_prob = torch.sigmoid(trigger_logits[0, -1]).item()
+    if pred == tid and trig_prob > 0.5:
+        correct += 1
+print(f"\n{correct}/500 correct ({100*correct/500:.1f}%)", flush=True)

@@ -54,7 +54,7 @@ class AccumulatorCell(nn.Module):
 
         # Token head: predict which world token to emit
         # Small bottleneck dim to keep params low
-        self.bottleneck_dim = 32
+        self.bottleneck_dim = 128
         self.token_proj = nn.Linear(dim, self.bottleneck_dim)
         self.token_head = nn.Linear(self.bottleneck_dim, world_vocab, bias=False)
 

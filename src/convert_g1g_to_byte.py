@@ -53,12 +53,15 @@ def main():
     with torch.no_grad():
         byte_embed.weight.zero_()
         # Copy first 256 rows from original embed (tokens 0-255 = single bytes)
+        # Original vocab: token 0 = empty (""), tokens 1-256 = bytes 0x00-0xFF
+        # So byte value bv maps to original token bv+1
         for bv in range(256):
             byte_id = 2 + bv  # byte vocab: PAD=0, UNK=1, bytes 2..257
-            byte_embed.weight.data[byte_id].copy_(sd['emb.weight'][bv])
-        # PAD and UNK get token 0's embedding
-        byte_embed.weight.data[0].copy_(sd['emb.weight'][0])
-        byte_embed.weight.data[1].copy_(sd['emb.weight'][0])
+            orig_token_id = bv + 1  # skip token 0 (empty)
+            byte_embed.weight.data[byte_id].copy_(sd['emb.weight'][orig_token_id])
+        # PAD and UNK get byte-0 embedding (original token 1)
+        byte_embed.weight.data[0].copy_(sd['emb.weight'][1])
+        byte_embed.weight.data[1].copy_(sd['emb.weight'][1])
     byte_sd['byte_embed.weight'] = byte_embed.weight
 
     # ── Byte head (no bias — matches original) ──
@@ -67,9 +70,10 @@ def main():
         byte_head.weight.zero_()
         for bv in range(256):
             byte_id = 2 + bv
-            byte_head.weight.data[byte_id].copy_(sd['head.weight'][bv])
-        byte_head.weight.data[0].copy_(sd['head.weight'][0])
-        byte_head.weight.data[1].copy_(sd['head.weight'][0])
+            orig_token_id = bv + 1
+            byte_head.weight.data[byte_id].copy_(sd['head.weight'][orig_token_id])
+        byte_head.weight.data[0].copy_(sd['head.weight'][1])
+        byte_head.weight.data[1].copy_(sd['head.weight'][1])
     byte_sd['byte_head.weight'] = byte_head.weight
 
     # ── Copy all layer weights verbatim ──
