@@ -8,7 +8,7 @@ from pathlib import Path
 import sys; sys.path.insert(0, '.')
 from src.hf_rwkv_tokenizer import RWKV_TOKENIZER
 
-DEVICE = "cuda"; LR = 1e-2; STEPS = 3000; LOG_EVERY = 500
+DEVICE = "cuda"; LR = 1e-2; STEPS = 10000; LOG_EVERY = 1000
 BATCH = 4096; MAX_BYTES = 24
 SAVE_PATH = "experiments/streaming_tokenizer/uint8_model.pt"
 CACHE = "experiments/streaming_tokenizer/ramp_cache.pkl"
@@ -16,26 +16,18 @@ CACHE = "experiments/streaming_tokenizer/ramp_cache.pkl"
 device = torch.device(DEVICE)
 tok = RWKV_TOKENIZER(str(Path("src/rwkv_vocab_v20230424.txt")))
 
-class Uint8Tokenizer(torch.nn.Module):
+class PerPosTokenizer(torch.nn.Module):
+    """Per-position byte lookup: each (position, byte_value) has a learned weight."""
     def __init__(self):
         super().__init__()
-        self.trig = torch.nn.Linear(MAX_BYTES, MAX_BYTES)
-        
+        self.lookup = torch.nn.EmbeddingBag(24 * 256, 2, mode='sum')
+        self.head = torch.nn.Linear(2, 24)
     def forward(self, byte_ids):
-        """byte_ids: (B, 24) — right-aligned tokens."""
         B, T = byte_ids.shape
-        state = torch.zeros(B, T, device=byte_ids.device, dtype=torch.uint8)
-        for i in range(T - 1, -1, -1):  # right to left
-            b = byte_ids[:, i]
-            state[:, i] = (state[:, i].to(torch.int) + b.to(torch.int)).to(torch.uint8)
-            if i > 0:
-                state[:, i-1] = (state[:, i-1].to(torch.int) + b.to(torch.int)).to(torch.uint8)
-        h = state.float() / 255.0
-        return torch.sigmoid(self.trig(h))
-    
-    def trig_at_23(self, byte_ids):
-        """Return trigger at position 23 (most recent byte)."""
-        return self.forward(byte_ids)[:, 23]
+        pos = torch.arange(T, device=byte_ids.device).unsqueeze(0).expand(B, -1)
+        idx = pos * 256 + byte_ids
+        h = self.lookup(idx)
+        return torch.sigmoid(self.head(h))
 
 # ── Load data ──
 with open(CACHE, "rb") as f:
@@ -44,7 +36,7 @@ byte_mat = byte_mat.to(device)
 ramp_targets = ramp_targets.to(device)
 print(f"Data: {len(byte_mat)} windows", flush=True)
 
-model = Uint8Tokenizer().to(device)
+model = PerPosTokenizer().to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=LR)
 print(f"Params: {sum(p.numel() for p in model.parameters()):,}", flush=True)
 
