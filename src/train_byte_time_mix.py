@@ -3,8 +3,10 @@
 Data: experiments/byte_time_mix/training_data/story_*.pt
 Each sample: bytes (24 byte IDs) → target = tm_out (2560-dim) from real g1g layer 0.
 
-Architecture: bytes → 8-bit embed → minGRU → project → tm_out.
-"""
+Architecture: raw uint8[24] → scalar-proj → minGRU → project → tm_out.
+No 256-way embedding table: each byte is its raw uint8 value (0..255),
+normalized, projected to dim. Padding is just value 0 like any byte
+(do not fixate on 0/1)."""
 import torch, torch.nn.functional as F, time
 from pathlib import Path
 import sys; sys.path.insert(0, '.')
@@ -28,14 +30,19 @@ device = torch.device(DEVICE)
 class ByteTimeMixEncoder(nn.Module):
     def __init__(self, dim=256, max_bytes=24):
         super().__init__()
-        self.embed = nn.Embedding(258, dim)
+        # Raw uint8[24]: each byte is a scalar in 0..255 -> dim.
+        self.byte_proj = nn.Linear(1, dim)
         self.pos = nn.Embedding(max_bytes, dim)
         self.gru = minGRU(dim)
         self.out = nn.Linear(dim, 2560)
     def forward(self, byte_ids):
+        # byte_ids: (B, T) with values (2 + b); recover true uint8, normalize.
         B, T = byte_ids.shape
+        raw = (byte_ids.float() - 2).clamp(0, 255) / 255.0  # (B, T) in [0,1]
+        x = self.byte_proj(raw.unsqueeze(-1))               # (B, T, dim)
         pos = torch.arange(T, device=byte_ids.device).unsqueeze(0).expand(B, -1)
-        return self.out(self.gru(self.embed(byte_ids) + self.pos(pos))[:, -1])
+        x = x + self.pos(pos)
+        return self.out(self.gru(x)[:, -1])
 
 # ── Load data ──
 files = sorted(DATA_DIR.glob("story_*.pt"))
