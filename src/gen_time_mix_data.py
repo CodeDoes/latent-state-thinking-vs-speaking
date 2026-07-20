@@ -50,8 +50,6 @@ with open("experiments/tinystories_texts.txt") as f:
     stories = f.read().split("\n---END---\n")
 print(f"  {len(stories)} stories", flush=True)
 
-token_ids = encode(story)
-
 # ── Resume ──
 stories_done = set()
 if STORY_KEY.exists():
