@@ -71,11 +71,7 @@ t0 = time.time()
 for step in range(STEPS):
     idx = torch.randperm(256, device=device)[:BATCH]
     pred, _ = model(all_embs[0, idx])
-    # Load balancing loss: encourage uniform routing
-    load_balance = -router_weights * torch.log(router_weights + 1e-8)  # entropy
-    load_balance = load_balance.sum(-1).mean()
-    
-    loss = F.mse_loss(pred, all_xx[idx]) - 0.01 * load_balance  # maximize entropy initially
+    loss = F.mse_loss(pred, all_xx[idx])
 
     opt.zero_grad(); loss.backward(); opt.step()
 
