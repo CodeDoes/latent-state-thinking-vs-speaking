@@ -1,48 +1,45 @@
 # AGENTS.md
 
-Project: byte-level RWKV with adaptive state and modular memory. Thesis in [`theories/ultimate.md`](theories/ultimate.md).
+Project: byte-level front-end for frozen RWKV-7 g1g 2.9B. Replace tokenizer, embedding, and layer 0 with tiny learned models that read raw bytes directly.
+
+Core insight: the g1g's byte-interface model (`byte_embed` + 32 RWKV blocks) already accepts raw bytes. Our job is to compress/accelerate the front-end — replacing expensive components with tiny learned alternatives that produce equivalent hidden states.
 
 ## Layout
 
 ```
-src/                models, datasets, training, analysis (Python)
-theories/           prose: design, hypotheses, results (one file per topic)
-research/           arxiv literature surveys organized by topic (see README.md)
-experiments/        per-run artifacts: config.json, train.log, metrics.json
-                    (one dir per run; delete the dir to clear)
-reports/            summaries written for outside readers
+src/                Python modules — models, training, inference
+theories/           prose: design, hypotheses, results
+experiments/        run artifacts (checkpoints, logs, cached datasets)
 ```
 
-Each `experiments/<id>/config.json` records the git hash it was run on. Each `theories/<file>.md` is one self-contained document — no separate `.infer.md` or `.status.md`.
+## Active Components
+
+- **`src/hybrid_tokenizer.py`** — Production tokenizer. TRIE for boundaries, XOR hash for fast ID lookup. 96% story-level match with real tokenizer. Use for any pipeline that needs discrete token IDs.
+
+- **`src/train_byte_ae.py`** — Byte-level auto-encoder. Stacked 2-layer minGRU reads bytes, produces latents. Trigger fires at token boundaries. The latent at trigger position is the compact representation for g1g.
+
+- **`src/train_loopy_timemix.py`** — Predicts layer 0 time-mix state (xx) from bytes. Byte → byte_embed → proj → minGRU → xx(2560). Cos 0.77 vs real time-mix. Replaces byte_embed + layer 0.
+
+- **`src/train_streaming_tokenizer.py`** — Various streaming tokenizer experiments (conv2d, uint8, per-position lookup).
+
+- **`src/auto_tokenizer.py`** — ByteG1GInference: loads quantized g1g, generates byte-by-byte. NF4 cache at `~/Documents/models/rwkv7-g1g-byte-iface/nf4_cache/`.
 
 ## How to work
 
-1. **Read first**: `theories/ultimate.md` → `theories/ultimate_thesis.md` → `theories/proofs.md` → `python src/_status.py`. The status script is a one-screen dump of theories, experiments, code, and git state.
+1. **Write scripts, not inline code.** Every training run, test, or experiment goes in a file under `src/` — never in `python3 -c "..."`. Files have easy-to-tweak config constants at the top.
 
-2. **Theory claims are tagged.** Stable IDs (`exp/<topic>/<NNN>`, `theo/<topic>/<CID>`) are git tags, not on-disk names. Directories get renamed; tags don't. See `src/_tag.py` for `exp`, `theo`, `link`, `list`, `show`, **`run`** subcommands.
+2. **Read first**: check `src/_status.py` for current state, `theories/proofs.md` for proven claims, and the relevant training script for existing approach.
 
-3. **Run experiments with bracketed snapshots.** Instead of copying a worktree, use the `run` subcommand:
-   ```bash
-   # Full run: pre-tag → run command → post-tag
-   python src/_tag.py run --id byte_loop_002 --topic byte_state_byte \
-       --command python ./src/train_byte_rwkv.py
+3. **One variable per experiment.** Change one thing, measure, commit. If loss doesn't move, fix the data or architecture — not the step count.
 
-   # Split workflow (long runs): pre-tag now, post-tag when done
-   python src/_tag.py run --id byte_loop_002 --topic byte_state_byte --pre-only
-   # ... run interactively, write outputs to experiments/byte_loop_002/ ...
-   python src/_tag.py run --id byte_loop_002 --topic byte_state_byte --post-only
-   ```
-   This mints two lightweight git tags (`exp/topic/NNN-pre`, `exp/topic/NNN-post`) plus one commit containing `experiments/<id>/`. The diff between tags is the canonical record of what the run produced. See `theories/method/tagging.md` for full rationale.
+4. **Checkpoint and cache.** Training scripts save model checkpoints to `experiments/<name>/`. Datasets that are expensive to build get cached via pickle/torch.save.
 
-4. **One variable per experiment.** If you can't name the single thing you changed, you didn't run an experiment. Match every other parameter.
+5. **Log at fixed step intervals.** Each training script has a `LOG_EVERY` config. Print loss/metrics every N steps. Don't aggregate across epochs — raw per-step output is easier to grep. Use `train.log | grep step | tail` to check latest.
 
-5. **Loss must move.** If it's flat from step 1, the data has no learnable pattern (or the code is broken) — fix that *first*. No "needs more steps" reflex.
-
-6. **Smoke test before scale.** Every new model runs a 60-second CPU pass with a pattern-bearing synthetic generator. See `theories/method/smoke_test_methodology.md`. If the smoke test doesn't learn, a longer run won't either.
+6. **Commit proven results.** Each working component gets a proof entry in `theories/proofs.md` with the commit hash and key metrics (params, accuracy, speed).
 
 ## What not to do
 
-- Multi-cause experiments.
-- Scale-up debugging of RWKV without a named hypothesis.
-- Re-opening retired threads in `theories/archive/`.
-- Reading or rewriting older esses' milk — most theories are already wrong at the edges; we mark them superseded in the prose instead of deleting.
+- Inline `python3 -c` scripts for anything beyond a 2-line test.
+- Multi-cause experiments where you can't name what changed.
+- Scale-up debugging without a named hypothesis.
