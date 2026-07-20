@@ -113,6 +113,20 @@ def time_mix_step_gpu(h, state):
 
     return tm_out, (ln1.detach().clone(), mat.detach().clone())
 
+
+def channel_mix_step_gpu(h_after_tm, xx_c, tid=None):
+    """Block-0 channel-mix on GPU. h_after_tm = emb + tm_out.
+    Returns (h_out, xx_c_next)."""
+    ln2 = F.layer_norm(h_after_tm, (D,),
+        weight=l0['blocks.0.ln2.weight'], bias=l0['blocks.0.ln2.bias'])
+    xx_c_diff = (xx_c if xx_c is not None else torch.zeros(D, device=DEVICE, dtype=DTYPE)) - ln2
+    xk_c = ln2 + xx_c_diff * l0['blocks.0.ffn.x_k'].squeeze()
+    k_c = F.relu(xk_c @ l0['blocks.0.ffn.key.weight'].T) ** 2
+    v_c = k_c @ l0['blocks.0.ffn.value.weight'].T
+    h_out = h_after_tm + v_c
+    xx_c_next = ln2.detach().clone()
+    return h_out, xx_c_next
+
 # ── Process ──
 t0 = time.time()
 stats = {'done': len(stories_done), 'samples': 0}
@@ -129,6 +143,7 @@ for si in range(len(stories)):
 
     story_samples = []
     state = None
+    xx_c = None
     for pi, tid in enumerate(token_ids[:TOKENS_PER_STORY]):
         if tid >= 65529:
             continue
@@ -138,6 +153,8 @@ for si in range(len(stories)):
 
         h = emb[tid]
         tm_out, state = time_mix_step_gpu(h, state)
+        h_after_tm = h + tm_out
+        h_out, xx_c = channel_mix_step_gpu(h_after_tm, xx_c)
 
         byte_values = [2 + b for b in bs]
         padded = byte_values + [0] * (MAX_BYTES - len(byte_values))
@@ -145,6 +162,7 @@ for si in range(len(stories)):
             'bytes': padded,
             'num_bytes': len(bs),
             'tm_out': tm_out.cpu().clone(),
+            'block0_out': h_out.cpu().clone(),
             'xx': state[0].cpu().clone(),
             'mat': state[1].cpu().clone(),
         })

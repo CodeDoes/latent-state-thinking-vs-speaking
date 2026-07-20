@@ -113,6 +113,47 @@ class ByteDecoderRNN(nn.Module):
 
         return byte_logits, trigger_logits, final_hidden, avg_trigger
 
+# ── BlackGooseChannelMix: single-linear-layer FFN replacement ────────────
+# Based on BlackGoose_Rimer (https://github.com/Alic-Li/BlackGoose_Rimer)
+# Replaces the standard RWKV-7 channel-mix (time-mix + ReLU² + key/value)
+# with a single linear layer: x → nn.Linear(dim, dim)(x)
+# No time-mix, no activation, no gating — just a learned projection.
+
+
+class BlackGooseChannelMix(nn.Module):
+    """Simplest possible RWKV-7 channel-mix replacement.
+
+    Takes the layer-normed input and passes it through a single linear
+    layer. No time-mix, no squared ReLU, no receptance gating — just a
+    learned dim→dim projection, exactly as in BlackGoose_Rimer's CMix.
+
+    Compared to LoopyChannelMix (byte encoder↔decoder RNN), this has:
+    - Far simpler forward pass (one matmul)
+    - Fewer hyperparameters (just dim)
+    - dim² parameters per layer (vs n_bytes×byte_dim + byte_dim² for loopy)
+    - A single linear projection with no recurrent state to carry
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        self.value = nn.Linear(dim, dim, bias=False)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        loop_state: Optional[dict] = None,
+    ) -> tuple[torch.Tensor, dict]:
+        """
+        Args:
+            x: (B, D) normalized hidden state
+            loop_state: ignored (no recurrent state needed)
+        Returns:
+            out: (B, D) output (residual is added by caller)
+            info: empty dict (no triggers to report)
+        """
+        return self.value(x), {}
+
+
 # ── LoopyChannelMix: the actual FFN replacement ─────────────────────────
 
 
@@ -203,12 +244,17 @@ class LoopyChannelMix(nn.Module):
 
 
 class G1GWithLoopyChannel(nn.Module):
-    """Frozen g1g 2.9B RWKV-7 with loopy byte-level channel-mix replacements.
+    """Frozen g1g 2.9B RWKV-7 with trainable channel-mix replacements.
 
     Loads frozen weights from the byte-interface checkpoint and replaces
-    the FFN sublayer of selected layers with LoopyChannelMix modules.
+    the FFN sublayer of selected layers with a trainable module.
 
-    Only the LoopyChannelMix parameters are trainable. All original
+    Supported channel types:
+    - 'loopy': LoopyChannelMix — byte encoder↔decoder RNN pathway
+    - 'blackgoose': BlackGooseChannelMix — single linear layer
+      (based on BlackGoose_Rimer: https://github.com/Alic-Li/BlackGoose_Rimer)
+
+    Only the replacement modules' parameters are trainable. All original
     parameters (time-mix, layer norms, embed, head) are frozen.
     """
 
@@ -216,6 +262,7 @@ class G1GWithLoopyChannel(nn.Module):
         self,
         model_path: Path = DEFAULT_MODEL_PATH,
         layers_to_replace: Optional[list[int]] = None,
+        channel_type: str = 'loopy',
         n_bytes: int = 32,
         byte_dim: int = 64,
         expansion_factor: float = 1.0,
@@ -223,6 +270,9 @@ class G1GWithLoopyChannel(nn.Module):
         max_loops: int = 2,
         verbose: bool = True,
     ):
+        assert channel_type in ('loopy', 'blackgoose'), \
+            f"channel_type must be 'loopy' or 'blackgoose', got '{channel_type}'"
+        self.channel_type = channel_type
         super().__init__()
 
         t0 = time.time()
@@ -253,11 +303,14 @@ class G1GWithLoopyChannel(nn.Module):
 
         self.loopy_channels = nn.ModuleDict()
         for lid in layers_to_replace:
-            self.loopy_channels[str(lid)] = LoopyChannelMix(
-                dim=D, n_bytes=n_bytes, byte_dim=byte_dim,
-                expansion_factor=expansion_factor,
-                min_encoder_steps=min_encoder_steps, max_loops=max_loops,
-            )
+            if channel_type == 'loopy':
+                self.loopy_channels[str(lid)] = LoopyChannelMix(
+                    dim=D, n_bytes=n_bytes, byte_dim=byte_dim,
+                    expansion_factor=expansion_factor,
+                    min_encoder_steps=min_encoder_steps, max_loops=max_loops,
+                )
+            else:  # 'blackgoose'
+                self.loopy_channels[str(lid)] = BlackGooseChannelMix(dim=D)
 
         # Frozen output params
         self.ln_out_weight = nn.Parameter(sd["ln_out.weight"].clone(), requires_grad=False)
@@ -267,7 +320,7 @@ class G1GWithLoopyChannel(nn.Module):
 
         trainable = sum(p.numel() for p in self.loopy_channels.parameters())
         if verbose:
-            print(f"  Trainable loopy channels: {trainable:,} params ({trainable/1e6:.2f}M)")
+            print(f"  Trainable {channel_type} channels: {trainable:,} params ({trainable/1e6:.2f}M)")
 
     def to_device(self, device: torch.device, dtype: torch.dtype = torch.bfloat16):
         """Move frozen weights to device/dtype."""
