@@ -19,7 +19,6 @@ BATCH = 64
 MAX_TOKEN_LEN = 80
 TRIGGER_WEIGHT = 1.0
 ACC_THRESH = 0.95
-OOD_FRAC = 0.1
 SAVE_PATH = "experiments/auto_tokenizer/curriculum_model.pt"
 CACHE_PATH = "experiments/auto_tokenizer/dataset.pt"
 
@@ -142,35 +141,31 @@ for L in lengths:
             
             latent, trigger_logits = enc(batch_bytes)
             
-            last_pos = (batch_bytes > 0).sum(dim=1) - 1
-            latent_last = latent[torch.arange(bb, device=device), last_pos.clamp(min=0)].unsqueeze(1)
-            byte_logits = dec(latent_last, batch_bytes)
+            # Use per-position latents (first L positions)
+            byte_logits = dec(latent[:, :L], batch_bytes[:, :L])  # (B, L, 258)
             
-            b_loss = F.cross_entropy(byte_logits.view(-1, BYTE_VOCAB), batch_bytes.view(-1), reduction='none').view_as(mask)
-            b_loss = (b_loss * mask).sum() / (mask.sum() + 1e-8)
+            # Byte loss only over actual token positions
+            b_loss = F.cross_entropy(byte_logits.view(-1, BYTE_VOCAB), batch_bytes[:, :L].contiguous().view(-1))
             
-            t_loss = F.binary_cross_entropy_with_logits(trigger_logits, batch_trig, reduction='none')
-            t_loss = (t_loss * mask).sum() / (mask.sum() + 1e-8)
+            # Trigger loss over actual token positions
+            t_loss = F.binary_cross_entropy_with_logits(
+                trigger_logits[:, :L].contiguous().view(-1),
+                batch_trig[:, :L].contiguous().view(-1)
+            )
             
             loss = b_loss + TRIGGER_WEIGHT * t_loss
             loss.backward()
             
-            # OOD trigger loss every 5 steps
-            if step % 5 == 0:
-                ood_bytes = torch.randint(2, 258, (16, MAX_TOKEN_LEN), device=device)
-                _, ood_trig = enc(ood_bytes)
-                F.binary_cross_entropy_with_logits(ood_trig, torch.zeros_like(ood_trig)).backward()
-            
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             # Freeze positions learned in PREVIOUS lengths (not current one)
             if pos_frozen.any():
-                enc.pos_embed.weight.grad[:, pos_frozen] = 0
+                enc.pos_embed.weight.grad[pos_frozen] = 0
             
             opt.step(); opt.zero_grad()
             step += 1
             
             with torch.no_grad():
-                acc = ((byte_logits.argmax(-1) == batch_bytes) * mask).sum().item() / (mask.sum() + 1e-8)
+                acc = (byte_logits.argmax(-1) == batch_bytes[:, :L]).float().mean().item()
             total_acc += acc; n_batches += 1
             
             if step % 100 == 0:
@@ -208,12 +203,14 @@ for L in [1, 3, 5]:
 # Reconstruction test
 print("\n--- Reconstruction ---", flush=True)
 for L in lengths[:5]:
-    batch = items_by_len[L][0][:5]
-    latent, _ = enc(batch)
-    last_pos = (batch > 0).sum(dim=1) - 1
-    latent_last = latent[torch.arange(len(batch), device=device), last_pos].unsqueeze(1)
-    pred = dec(latent_last, batch).argmax(-1)
+    batch = items_by_len[L][0][:5]  # (B, 80)
+    latent, _ = enc(batch)  # (B, 80, LD)
+    # Use per-position latents for only the actual token length
+    batch_slice = batch[:, :L]
+    latent_slice = latent[:, :L]
+    logits = dec(latent_slice, batch_slice)  # (B, L, 258)
+    pred = logits.argmax(-1)  # (B, L)
     for i in range(min(3, batch.shape[0])):
-        orig = bytes(b-2 for b in batch[i].tolist() if b >= 2)
+        orig = bytes(b-2 for b in batch[i, :L].tolist() if b >= 2)
         got = bytes(b-2 for b in pred[i].tolist() if b >= 2)
         print(f"  L={L} {'✓' if orig==got else '✗'} {orig!r} → {got!r}", flush=True)
